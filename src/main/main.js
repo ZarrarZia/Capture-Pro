@@ -13,10 +13,13 @@ const { Recorder } = require('./recorder');
 const { buildRecordArgs, buildImageArgs, textFileContent } = require('./capture-args');
 const { Helper } = require('./helper');
 const { outputPath } = require('./naming');
-const { toPhysical, toDip, regionSource, displaySource, sourceRect } = require('./targets');
+const { toPhysical, toDip, regionSource, displaySource, sourceRect, monitorFor } = require('./targets');
+const { MouseFollower } = require('./follower');
+const scheduler = require('./scheduler');
 const outputs = require('./outputs');
 const { Overlays } = require('./overlays');
 const { Webcam } = require('./webcam');
+const { Device } = require('./device');
 
 const ROOT = path.join(__dirname, '..', '..');
 const RENDERER = path.join(ROOT, 'src', 'renderer');
@@ -37,7 +40,7 @@ const rec = { mode: null, targetName: '', file: null, startedAt: 0, lastSoundAt:
 let lastGameTarget = null;
 let hotkeyCapture = null;
 let imageRepeatTimer = null;
-let overlays, webcam, drawbarWin;
+let overlays, webcam, device, drawbarWin;
 let monitorsCache = [];
 const drawState = { enabled: false, tool: 'pen', color: '#ff3b48', width: 4, whiteboard: false };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -182,7 +185,7 @@ function refreshTray() {
 }
 
 function showMain() { mainWin.show(); if (mainWin.isMinimized()) mainWin.restore(); mainWin.focus(); }
-function quit() { app.isQuitting = true; helper?.stop(); app.quit(); }
+function quit() { app.isQuitting = true; helper?.stop(); device?.close(); overlays?.close(); webcam?.close(); app.quit(); }
 function openOutputFolder() {
   const dir = settings.get().general.outputDir;
   fs.mkdirSync(dir, { recursive: true });
@@ -264,9 +267,15 @@ async function resolveTarget(s) {
     case 'full':
       return withRect({ source: displaySource(monitors, s.target.display, method), name: 'Screen' });
     case 'mouse': {
+      // Capture the whole monitor under the cursor and steer a crop window with the cursor.
       const c = screen.dipToScreenPoint(screen.getCursorScreenPoint());
-      const sz = s.target.mouseSize;
-      return withRect({ source: regionSource(monitors, { x: Math.round(c.x - sz.w / 2), y: Math.round(c.y - sz.h / 2), w: sz.w, h: sz.h }, method), name: 'Screen' });
+      const m = monitorFor(monitors, { x: c.x, y: c.y, w: 1, h: 1 });
+      const even = (n) => n - (n % 2);
+      const w = even(Math.min(s.target.mouseSize.w, m.w)), h = even(Math.min(s.target.mouseSize.h, m.h));
+      const x = Math.max(0, Math.min(m.w - w, Math.round(c.x - m.x - w / 2)));
+      const y = Math.max(0, Math.min(m.h - h, Math.round(c.y - m.y - h / 2)));
+      const source = method === 'dda' ? { kind: 'dda', outputIdx: m.index } : { kind: 'wgc-monitor', hmonitor: m.hmonitor };
+      return { source, follow: { w, h, x, y, monitor: m }, name: 'Screen', regionPhys: { x: m.x + x, y: m.y + y, w, h } };
     }
     case 'window': {
       const w = s.target.window;
@@ -283,8 +292,11 @@ async function resolveTarget(s) {
     }
     case 'audio':
       return { source: null, name: 'Audio' };
+    case 'device':
+      if (!s.target.device.videoId) throw new Error("You can't start recording in Device Recording Mode because the capture device is not selected.");
+      return { source: null, device: true, name: 'Device' };
     default:
-      throw new Error('Device recording is not available yet.');
+      throw new Error(`Unknown recording mode: ${s.mode}`);
   }
 }
 
@@ -298,7 +310,7 @@ async function startRecording() {
   rec.regionDip = target.regionPhys ? toDip(target.regionPhys) : null;
 
   // Countdown on the capture-visible overlay; it disappears before the first frame is captured.
-  if (!audioOnly && s.video.countdown > 0) {
+  if (!audioOnly && !target.device && s.video.countdown > 0) {
     rec.counting = true;
     rec.abortCountdown = false;
     overlays.open(overlayConfig(false));
@@ -312,7 +324,7 @@ async function startRecording() {
     await sleep(150);
   }
 
-  const aplan = audioPlan(s, audioOnly);
+  const aplan = target.device ? { tracks: 0 } : audioPlan(s, audioOnly); // device mode records the device's own audio
   if (audioOnly && !aplan.tracks) { toast('error', 'There is no sound device activated. Please select at least one device.'); return; }
 
   const container = audioOnly ? s.audio.audioOnlyFormat : s.video.container;
@@ -341,12 +353,16 @@ async function startRecording() {
     aplan.tracks = 0;
   }
 
+  rec.follower = target.follow ? new MouseFollower(target.follow) : null;
   const plan = (enc) => ({
     finalPath, container, audioTracks: aplan.tracks, priority: s.video.priority,
+    external: target.device ? device.external({ video: s.video, audio: s.audio, ffEncoder: enc, container, device: s.target.device }) : null,
     splitTracks: s.audio.saveTracksAsFiles && !audioOnly,
+    beforeSegment: target.follow ? async () => { target.follow.port = await MouseFollower.freePort(); } : null,
     buildArgs: (seg, pipes) => buildRecordArgs({
       source: target.source, showCursor: s.video.showCursor, video: s.video, audio, ffEncoder: enc,
       container, audioPipes: pipes, logo, texts, output: seg,
+      follow: target.follow && { ...target.follow, x: Math.round(target.follow.x), y: Math.round(target.follow.y) },
     }),
   });
 
@@ -498,6 +514,8 @@ function keystrokeText(k) {
 }
 
 recorder.on('state', () => { broadcastStatus(); refreshTray(); });
+recorder.on('segment', () => { if (rec.follower) rec.follower.attach(rec.follower.f.port); });
+recorder.on('segment-end', () => rec.follower?.detach());
 recorder.on('failed', async (msg) => {
   toast('error', `The recording has stopped because of an encoder problem.\n${msg}`);
   if (recorder.state === 'recording') await stopRecording();
@@ -538,6 +556,69 @@ setInterval(async () => {
   if (done) await autoComplete(ac.after);
 }, 500);
 
+// ---------------------------------------------------------------------------- timer, schedules, auto-pause
+let timerAt = null;          // Date when timer recording starts
+let scheduleRun = null;      // { id, end, after } while a scheduled recording runs
+const scheduleFired = new Map(); // schedule id -> start time already triggered
+
+function timerStatus() { return timerAt ? { at: timerAt.getTime() } : null; }
+
+async function applyScheduleTarget(sc) {
+  if (sc.target === 'full') settings.update({ mode: 'full', target: { display: sc.display ?? 0 } });
+  else if (sc.target === 'rect' && sc.rect) {
+    settings.update({ mode: 'rect', target: { rect: sc.rect } });
+    rectWin?.setBounds(rectWindowBounds(clampRect(sc.rect)));
+  }
+}
+
+setInterval(async () => {
+  if (!settings || !helper) return;
+  const s = settings.get();
+  const now = new Date();
+
+  if (timerAt && now >= timerAt) {
+    timerAt = null;
+    broadcast('timer:status', null);
+    if (recorder.state === 'idle') {
+      if (s.timer.minimizeOnStart) mainWin.hide();
+      startRecording();
+    }
+  }
+
+  if (scheduleRun && now >= scheduleRun.end) {
+    const after = scheduleRun.after;
+    scheduleRun = null;
+    if (recorder.state !== 'idle') await autoComplete(after);
+  }
+
+  if (!scheduleRun && recorder.state === 'idle' && !rec.counting) {
+    const d = scheduler.due(s.schedules, now);
+    if (d && scheduleFired.get(d.schedule.id) !== d.window.start.getTime()) {
+      scheduleFired.set(d.schedule.id, d.window.start.getTime());
+      await applyScheduleTarget(d.schedule);
+      scheduleRun = { id: d.schedule.id, end: d.window.end, after: d.schedule.after };
+      await startRecording();
+      if (recorder.state === 'idle') scheduleRun = null;
+    }
+  }
+
+  // Auto-pause after a period of user inactivity (screen modes), resume on input.
+  const ap = s.video.autoPause;
+  if (ap.enabled && SCREEN_MODES.includes(rec.mode) && (recorder.state === 'recording' || recorder.state === 'paused')) {
+    const idle = await helper.idleMs().catch(() => 0);
+    if (recorder.state === 'recording' && idle >= ap.idleSec * 1000) { rec.autoPaused = true; await togglePause(); toast('info', 'Recording paused (no activity).'); }
+    else if (recorder.state === 'paused' && rec.autoPaused && idle < 1000) { rec.autoPaused = false; await togglePause(); }
+  }
+}, 1000);
+
+function scheduleList() {
+  const now = new Date();
+  return settings.get().schedules.map((sc) => {
+    const w = scheduler.nextWindow(sc, now);
+    return { ...sc, status: scheduler.status(sc, now), next: w ? { start: w.start.getTime(), end: w.end.getTime() } : null, durationMs: scheduler.durationMs(sc) };
+  });
+}
+
 async function autoComplete(after) {
   await stopRecording();
   switch (after) {
@@ -561,8 +642,20 @@ async function captureImage() {
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const logo = s.overlays.logo.enabled && fs.existsSync(s.overlays.logo.image) ? s.overlays.logo : null;
   try {
-    const args = buildImageArgs({ source: target.source, showCursor: s.image.showCursor, format: fmt, jpgQuality: s.image.jpgQuality, logo, output: out });
-    await ffmpeg.run(args.slice(3), { timeoutMs: 15000 });
+    if (target.device) {
+      // Snapshot of the device preview, then format conversion (and logo) through ffmpeg.
+      const png = path.join(os.tmpdir(), `capturepro-snap-${process.pid}.png`);
+      fs.writeFileSync(png, await device.snapshot());
+      const vf = logo ? null : (fmt === 'jpg' ? 'format=yuvj444p' : fmt === 'bmp' ? 'format=bgr24' : 'format=rgb24');
+      const args = logo
+        ? ['-loglevel', 'error', '-i', png, '-i', logo.image, '-filter_complex', `[1:v]format=rgba,colorchannelmixer=aa=${logo.opacity / 100}[l];[0:v][l]overlay=W-w-${logo.marginX}:${logo.marginY}`, '-frames:v', '1', out]
+        : ['-loglevel', 'error', '-i', png, '-vf', vf, '-frames:v', '1', ...(fmt === 'jpg' ? ['-q:v', String(Math.round(31 - 29 * s.image.jpgQuality / 100))] : []), out];
+      await ffmpeg.run(args, { timeoutMs: 15000 });
+      fs.rm(png, () => {});
+    } else {
+      const args = buildImageArgs({ source: target.source, showCursor: s.image.showCursor, format: fmt, jpgQuality: s.image.jpgQuality, logo, output: out });
+      await ffmpeg.run(args.slice(3), { timeoutMs: 15000 });
+    }
   } catch (e) {
     toast('error', `Failed to capture image. Please check your output folder.\n${e.message}`);
     return;
@@ -673,6 +766,38 @@ function registerIpc() {
   ipcMain.on('rect:ignoreMouse', (_e, ignore) => rectWin?.setIgnoreMouseEvents(ignore, { forward: true }));
   ipcMain.handle('rect:hide', () => { rectWin.userHidden = true; updateRectVisibility(); });
 
+  // timer & scheduled recording
+  ipcMain.handle('timer:get', () => timerStatus());
+  ipcMain.handle('timer:set', (_e, t) => {
+    settings.update({ timer: t });
+    const now = new Date();
+    if (t.mode === 'at') {
+      const [h, m] = String(t.at || '00:00').split(':').map(Number);
+      timerAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
+      if (timerAt <= now) timerAt = new Date(timerAt.getTime() + 86400000);
+    } else {
+      timerAt = new Date(now.getTime() + Math.max(1, Math.min(1440, Number(t.startIn) || 1)) * 60000);
+    }
+    broadcast('timer:status', timerStatus());
+    return timerStatus();
+  });
+  ipcMain.handle('timer:cancel', () => { timerAt = null; broadcast('timer:status', null); });
+  ipcMain.handle('schedules:list', () => scheduleList());
+  ipcMain.handle('schedules:save', (_e, sc) => {
+    const err = scheduler.validate(sc);
+    if (err) return { error: err };
+    const list = settings.get().schedules;
+    const clash = sc.active && scheduler.overlapping(sc, list);
+    if (clash) return { error: `The recording time overlaps with "${clash}".` };
+    const i = list.findIndex((x) => x.id === sc.id);
+    const next = [...list];
+    if (i >= 0) next[i] = sc; else next.push({ ...sc, id: sc.id || `s${Date.now().toString(36)}` });
+    settings.update({ schedules: next });
+    return { ok: true };
+  });
+  ipcMain.handle('schedules:delete', (_e, ids) => { settings.update({ schedules: settings.get().schedules.filter((x) => !ids.includes(x.id)) }); });
+  ipcMain.handle('rect:current', () => (rectWin ? interiorFromWindow(rectWin.getBounds()) : settings.get().target.rect));
+
   // drawing mode
   ipcMain.handle('draw:toggle', () => toggleDrawing());
   ipcMain.on('overlay:setDraw', (_e, d) => {
@@ -681,6 +806,18 @@ function registerIpc() {
     overlays.setInteractive(drawState.enabled && drawState.tool !== 'cursor');
   });
   ipcMain.on('overlay:drawCmd', (_e, cmd) => (cmd === 'exit' ? toggleDrawing(false) : overlays.broadcast('overlay:drawCmd', cmd)));
+
+  // device recording window
+  ipcMain.on('device:chunk', (_e, buf) => device.chunk(buf));
+  ipcMain.on('device:ack', (_e, name, value) => device.resolve(name, value));
+  ipcMain.on('device:zoom', (_e, w, h) => {
+    if (!device.win || !w) return;
+    const sf = screen.getDisplayMatching(device.win.getBounds()).scaleFactor;
+    device.win.setContentSize(Math.round(w / sf), Math.round(h / sf) + 39);
+  });
+  ipcMain.on('device:fullscreen', () => device.win?.setFullScreen(!device.win.isFullScreen()));
+  ipcMain.on('device:hide', () => device.win?.hide());
+  ipcMain.handle('device:show', () => device.sync());
 
   // webcam overlay
   ipcMain.on('webcam:aspect', (_e, a) => webcam.setCameraAspect(a));
@@ -707,6 +844,7 @@ app.whenReady().then(async () => {
   helper = new Helper(path.join(ROOT, 'native', 'bin', 'CaptureProHelper.exe'));
   overlays = new Overlays({ preload: PRELOAD, rendererDir: RENDERER });
   webcam = new Webcam({ preload: PRELOAD, rendererDir: RENDERER, settings, getRegion: () => previewRegion() });
+  device = new Device({ preload: PRELOAD, rendererDir: RENDERER, settings });
 
   helper.on('press', onHotkey);
   helper.on('press', (k) => {
@@ -720,6 +858,12 @@ app.whenReady().then(async () => {
   });
   helper.start();
   helper.monitors().then((m) => { monitorsCache = m; }).catch(() => {});
+
+  // Only our own local pages are loaded, so media permission checks can be granted. This also lets
+  // enumerateDevices() return real device ids/labels without first opening a camera or microphone.
+  const isOwnPage = (url) => String(url || '').startsWith('file://');
+  session.defaultSession.setPermissionCheckHandler((wc, permission, origin) => permission === 'media' && isOwnPage(origin || wc?.getURL()));
+  session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(['media', 'display-capture'].includes(permission) && isOwnPage(wc.getURL())));
 
   // System-audio loopback for the audio engine (getDisplayMedia → WASAPI loopback).
   session.defaultSession.setDisplayMediaRequestHandler((_req, cb) => {
@@ -750,9 +894,11 @@ app.whenReady().then(async () => {
     if (!patch || patch.image) applyImageRepeat();
     if (!patch || patch.target) { if (rectWin && patch?.target?.rect === undefined) sendRectInfo(); }
     if (!patch || patch.mode || patch.target || patch.overlays?.webcam) webcam.sync();
+    if (!patch || patch.mode) device.sync();
     broadcast('settings:changed', s);
   });
   webcam.sync();
+  device.sync();
 
   if (settings.get().general.recordOnStartup) {
     settings.update({ mode: 'full' });

@@ -67,6 +67,15 @@ test('buildRecordArgs: gdigrab input, VFR and audio-only', () => {
   assert.equal(a[a.indexOf('-c:a') + 1], 'libmp3lame');
 });
 
+test('buildRecordArgs: around-mouse follow crop is controllable over zmq', () => {
+  const a = buildRecordArgs({
+    source: { kind: 'wgc-monitor', hmonitor: 1 }, follow: { port: 5700, w: 1280, h: 720, x: 10, y: 20 },
+    ffEncoder: 'libx264', video: {}, output: 'o.mkv',
+  });
+  const fc = a[a.indexOf('-filter_complex') + 1];
+  assert.ok(fc.includes(String.raw`zmq=b=tcp\\://127.0.0.1\\:5700,crop@follow=w=1280:h=720:x=10:y=20[src]`), fc);
+});
+
 test('text macros and positions', () => {
   assert.equal(textFileContent('Rec {time} 100%'), 'Rec %{localtime:%H\\:%M\\:%S} 100\\%');
   assert.deepEqual(positionExpr('middle-center', 5, 5, 'w', 'h'), { x: '(W-w)/2', y: '(H-h)/2' });

@@ -58,7 +58,12 @@ function buildRecordArgs(job) {
 
   // Video source: filter sources live in the filter graph; gdigrab is a regular input.
   if (source) {
-    const sf = sourceFilter(source, fps, job.showCursor, vfr);
+    let sf = sourceFilter(source, fps, job.showCursor, vfr);
+    // "Around mouse": a crop window moved at runtime through ffmpeg's zmq filter.
+    if (sf && job.follow) {
+      const f = job.follow;
+      sf += `,zmq=b=tcp\\\\://127.0.0.1\\\\:${f.port},crop@follow=w=${f.w}:h=${f.h}:x=${f.x}:y=${f.y}`;
+    }
     if (sf) {
       chains.push(`${sf}[src]`);
       vIn = '[src]';

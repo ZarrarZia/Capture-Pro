@@ -33,7 +33,7 @@ const MODES = [
   { id: 'window', label: 'Window', title: 'Screen Recording – Specific window', desc: 'Record one window, even when other windows cover it.', steps: ['Choose a window to capture.', 'Click REC or press the record hotkey.'] },
   { id: 'mouse', label: 'Around mouse', title: 'Screen Recording – Around mouse', desc: 'Record an area centred on the mouse cursor when recording starts.', steps: ['Choose the capture size.', 'Click REC or press the record hotkey.'] },
   { id: 'game', label: 'Game', title: 'Game Recording', desc: 'Record the game (or any app) that is in front when you press the record hotkey.', steps: ['Start your game and bring it to the front.', 'Press the record hotkey (the REC button records the last active app).'] },
-  { id: 'device', label: 'Device', title: 'Device Recording', desc: 'Record webcams and HDMI capture devices.', steps: ['Coming in the next CapturePro phase.'] },
+  { id: 'device', label: 'Device', title: 'Device Recording', desc: 'Record webcams, HDMI capture devices, consoles and smartphones.', steps: ['Select a webcam or capture device in the device window.', 'Click REC or press the record hotkey.'] },
   { id: 'audio', label: 'Audio only', title: 'Audio-only Recording', desc: 'Record only the computer sound and/or microphone.', steps: ['Choose the sound sources below.', 'Click REC or press the record hotkey.'] },
 ];
 
@@ -119,6 +119,9 @@ const pages = {
     } else if (m.id === 'game') {
       detail = `<div class="section"><h2>Recording target</h2><div id="game-target">${gameTargetHtml()}</div>
         <p class="hint">CapturePro records the game window through Windows Graphics Capture. In-game FPS overlay and FPS limiting are not available (they require injecting code into games).</p></div>`;
+    } else if (m.id === 'device') {
+      detail = `<div class="section"><h2>Capture device</h2><div class="row"><button class="btn primary" id="show-device">Show device window</button>
+        <span class="hint">Choose the device, format and audio input in the device window. Options there include deinterlacing, rotation and flipping.</span></div></div>`;
     } else if (m.id === 'audio') {
       detail = `<div class="section"><h2>Recording source</h2>${check('audio.speaker.enabled', 'Record computer sound')}${check('audio.mic.enabled', 'Record microphone')}
         ${row('File type', select('audio.audioOnlyFormat', [['mp3', 'MP3'], ['wav', 'WAV (uncompressed)']]))}</div>`;
@@ -143,6 +146,12 @@ const pages = {
       ${check('general.alwaysOnTop', 'CapturePro window always on top')}${check('general.startMinimized', 'Start CapturePro minimized to tray')}
       ${check('general.runOnStartup', 'Run CapturePro on Windows startup')}${check('general.recordOnStartup', 'Start full-screen recording on startup')}
       ${check('general.trayNotifications', 'Show notifications when files are saved')}</div></div>
+    <div class="section"><h2>Auto Start Recording</h2>
+      <div class="row"><span class="lbl">Timer recording</span><span id="timer-status" class="grow hint">${timerText()}</span>
+        <button class="btn" id="timer-set">Set timer…</button><button class="btn" id="timer-cancel" ${timerState ? '' : 'hidden'}>Cancel timer</button></div>
+      <div class="row"><span class="lbl">Scheduled recording</span><span class="grow hint">${S.schedules.length ? `${S.schedules.filter((x) => x.active).length} active of ${S.schedules.length} schedule(s)` : 'There are no scheduled recordings.'}</span>
+        <button class="btn" id="sched-open">Schedules…</button></div>
+      <p class="hint">Timers and schedules run while CapturePro is open (it can stay minimized in the tray).</p></div>
     <div class="section"><h2>Auto Complete Recording</h2>
       ${row('Stop recording', select('autoComplete.mode', [['off', 'Disabled'], ['time', 'By recording time'], ['size', 'By file size'], ['silence', 'By silent duration']], 'data-rerender'))}
       ${S.autoComplete.mode === 'time' ? row('Max time', num('autoComplete.timeSec', 1, 86400, 'seconds')) : ''}
@@ -161,6 +170,7 @@ const pages = {
     <div class="section"><h2>Record</h2><div class="grid2"><div>${hotkey('hotkeys.record', 'Record/Stop hotkey')}${hotkey('hotkeys.pause', 'Pause hotkey')}${hotkey('hotkeys.cancel', 'Cancel hotkey')}</div>
       <div>${check('video.showCursor', 'Show mouse cursor')}${check('video.hideMainWindow', 'Hide main window during recording')}${check('video.excludeOwnWindows', 'Exclude CapturePro windows from recording')}
       ${check('video.soundEffects', 'Play sound effects when recording starts/stops')}${check('video.openPlayerAfter', 'Open the video after recording')}</div></div>
+      <div class="row">${check('video.autoPause.enabled', 'Auto-pause recording after')}${select('video.autoPause.idleSec', [5, 7, 10, 12, 15, 20, 25, 30, 40, 50, 60].map((n) => [n, `${n} sec`]), 'data-t="num"')}<span class="unit">of inactivity (screen modes)</span></div>
       ${row('Countdown timer', select('video.countdown', [[0, 'Off'], ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => [n, `${n} sec`])], 'data-t="num"'))}
       ${hotkey('hotkeys.toggleDraw', 'Drawing mode hotkey')}
       ${row('Capture method', select('video.captureMethod', [['wgc', 'Windows Graphics Capture (Windows 10+, recommended)'], ['dda', 'Desktop Duplication (Windows 8+)'], ['gdi', 'GDI (compatibility)']]))}
@@ -270,6 +280,96 @@ const SHAPE_LABELS = {
 
 const POSITIONS = [['top-left', 'Top left'], ['top-center', 'Top center'], ['top-right', 'Top right'], ['middle-left', 'Middle left'], ['middle-center', 'Center'], ['middle-right', 'Middle right'], ['bottom-left', 'Bottom left'], ['bottom-center', 'Bottom center'], ['bottom-right', 'Bottom right']];
 
+// ------------------------------------------------------------------ timer & schedules
+let timerState = null;
+function timerText() {
+  if (!timerState) return 'No timer set.';
+  const ms = Math.max(0, timerState.at - Date.now());
+  const s = Math.floor(ms / 1000);
+  return `Recording starts at ${new Date(timerState.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (in ${Math.floor(s / 3600)}h ${String(Math.floor(s / 60) % 60).padStart(2, '0')}m ${String(s % 60).padStart(2, '0')}s)`;
+}
+setInterval(() => { const el = $('#timer-status'); if (el && timerState) el.textContent = timerText(); }, 1000);
+
+function timerDialog() {
+  const t = S.timer;
+  modal('Timer Recording', `
+    <div class="row"><label class="check"><input type="radio" name="tm" value="in" ${t.mode !== 'at' ? 'checked' : ''}>Start in</label><input id="tm-in" type="number" min="1" max="1440" value="${t.startIn}" style="width:90px"><span class="unit">minutes</span></div>
+    <div class="row"><label class="check"><input type="radio" name="tm" value="at" ${t.mode === 'at' ? 'checked' : ''}>Start at</label><input id="tm-at" type="time" value="${esc(t.at)}"></div>
+    <label class="check"><input id="tm-min" type="checkbox" ${t.minimizeOnStart ? 'checked' : ''}>Minimize CapturePro to tray when recording starts</label>
+    <p class="hint">The current recording mode (${esc(S.mode)}) is used. Combine with Auto Complete Recording to stop automatically.</p>
+    <div class="row" style="justify-content:flex-end"><button class="btn primary" id="tm-ok">Start timer</button></div>`);
+  $('#tm-ok').onclick = async () => {
+    const mode = $('input[name=tm]:checked').value;
+    const startIn = Number($('#tm-in').value);
+    if (mode === 'in' && !(startIn >= 1 && startIn <= 1440)) return toast('error', 'Enter a value between 1 and 1440 minutes.');
+    timerState = await api.timer.set({ mode, startIn, at: $('#tm-at').value || '09:00', minimizeOnStart: $('#tm-min').checked });
+    closeModal(); render();
+  };
+}
+
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const fmtDur = (ms) => { const s = Math.round(ms / 1000); return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+const fmtWhen = (ms) => new Date(ms).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+async function schedulesDialog() {
+  const list = await api.schedules.list();
+  const targetLabel = (s) => s.target === 'full' ? (s.display === -1 ? 'All displays' : `Display ${(s.display ?? 0) + 1}`) : s.target === 'rect' ? 'Rectangle on a screen' : '(Last recording target)';
+  const afterLabel = { nothing: '(Do nothing)', exit: 'Exit CapturePro', shutdown: 'Shut down', hibernate: 'Hibernate' };
+  modal('Scheduled Recording', `<p class="hint" style="margin-top:0">Recording starts and stops automatically at the scheduled times while CapturePro is running.</p>
+    <table class="enc"><tr><th></th><th>Name</th><th>Status</th><th>Next start</th><th>Duration</th><th>Target</th><th>After</th></tr>
+    ${list.length ? list.map((s, i) => `<tr><td><input type="checkbox" data-sel="${i}"></td><td>${esc(s.name)}</td><td><span class="pill ${s.status === 'Waiting' || s.status === 'Recording' ? 'ok' : ''}">${s.status}</span></td>
+      <td>${s.next ? fmtWhen(s.next.start) : '–'}</td><td>${fmtDur(s.durationMs)}</td><td>${esc(targetLabel(s))}</td><td>${afterLabel[s.after] || ''}</td></tr>`).join('') : '<tr><td colspan="7" class="hint">There are no scheduled recordings.</td></tr>'}</table>
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" id="sc-add">Add</button><button class="btn" id="sc-edit">Edit</button><button class="btn" id="sc-copy">Copy</button><button class="btn danger" id="sc-del">Delete</button></div>`);
+  const selected = () => $$('[data-sel]').filter((c) => c.checked).map((c) => list[Number(c.dataset.sel)]);
+  $('#sc-add').onclick = () => editSchedule(null);
+  $('#sc-edit').onclick = () => { const s = selected()[0]; if (s) editSchedule(s); };
+  $('#sc-copy').onclick = () => { const s = selected()[0]; if (s) editSchedule({ ...s, id: null, name: `${s.name} (copy)`, active: false }); };
+  $('#sc-del').onclick = async () => {
+    const s = selected();
+    if (s.length && confirm('Are you sure you want to delete selected schedules permanently?')) { await api.schedules.delete(s.map((x) => x.id)); schedulesDialog(); render(); }
+  };
+}
+
+function editSchedule(s) {
+  const today = new Date();
+  const d = s || { id: null, name: 'Schedule', active: true, type: 'once', date: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`, days: [today.getDay()], start: '09:00:00', end: '10:00:00', durationSec: null, target: 'last', display: 0, rect: null, after: 'nothing' };
+  modal(s?.id ? 'Edit schedule' : 'Add schedule', `
+    ${row('Name', `<input id="sc-name" class="grow" maxlength="40" value="${esc(d.name)}"><label class="check"><input id="sc-active" type="checkbox" ${d.active ? 'checked' : ''}>Active</label>`)}
+    ${row('Scheduling', ['once', 'daily', 'weekly'].map((t) => `<label class="check"><input type="radio" name="sc-type" value="${t}" ${d.type === t ? 'checked' : ''}>${{ once: 'One time', daily: 'Daily', weekly: 'Weekly' }[t]}</label>`).join(''))}
+    <div id="sc-date-row">${row('Date', `<input id="sc-date" type="date" value="${esc(d.date || '')}">`)}</div>
+    <div id="sc-days-row">${row('Days', DAYS.map((n, i) => `<label class="check"><input type="checkbox" data-day="${i}" ${(d.days || []).includes(i) ? 'checked' : ''}>${n.slice(0, 3)}</label>`).join(''))}</div>
+    ${row('Start time', `<input id="sc-start" type="time" step="1" value="${esc(d.start)}">`)}
+    ${row('End', `<label class="check"><input type="radio" name="sc-endmode" value="end" ${d.durationSec ? '' : 'checked'}>End time</label><input id="sc-end" type="time" step="1" value="${esc(d.end || '10:00:00')}">
+      <label class="check"><input type="radio" name="sc-endmode" value="dur" ${d.durationSec ? 'checked' : ''}>Duration</label><input id="sc-dur" type="time" step="1" value="${fmtDur((d.durationSec || 3600) * 1000)}">`)}
+    ${row('Recording target', `<select id="sc-target">${opt('last', '(Use the last recording target)', d.target)}${APP.displays.map((x) => opt(`full:${x.index}`, `Fullscreen – ${x.label}`, d.target === 'full' ? `full:${d.display}` : '')).join('')}${opt('full:-1', 'Fullscreen – All displays', d.target === 'full' ? `full:${d.display}` : '')}${opt('rect', 'Rectangle (current capture frame)', d.target)}</select>`)}
+    ${row('After recording', `<select id="sc-after">${opt('nothing', '(Do nothing)', d.after)}${opt('exit', 'Exit CapturePro', d.after)}${opt('shutdown', 'Shut down the computer', d.after)}${opt('hibernate', 'Hibernate the computer', d.after)}</select>`)}
+    <div class="row" style="justify-content:flex-end"><button class="btn" id="sc-back">Back</button><button class="btn primary" id="sc-save">Save</button></div>`);
+  const sync = () => {
+    const t = $('input[name=sc-type]:checked').value;
+    $('#sc-date-row').hidden = t !== 'once';
+    $('#sc-days-row').hidden = t !== 'weekly';
+  };
+  $$('input[name=sc-type]').forEach((r) => r.addEventListener('change', sync));
+  sync();
+  $('#sc-back').onclick = schedulesDialog;
+  $('#sc-save').onclick = async () => {
+    const hms = (v) => (v.length === 5 ? `${v}:00` : v);
+    const [tgt, disp] = $('#sc-target').value.split(':');
+    const durParts = hms($('#sc-dur').value || '01:00:00').split(':').map(Number);
+    const sc = {
+      ...d, name: $('#sc-name').value.trim() || 'Schedule', active: $('#sc-active').checked, type: $('input[name=sc-type]:checked').value,
+      date: $('#sc-date').value, days: $$('[data-day]').filter((c) => c.checked).map((c) => Number(c.dataset.day)),
+      start: hms($('#sc-start').value || '09:00:00'), end: hms($('#sc-end').value || '10:00:00'),
+      durationSec: $('input[name=sc-endmode]:checked').value === 'dur' ? durParts[0] * 3600 + durParts[1] * 60 + (durParts[2] || 0) : null,
+      target: tgt, display: tgt === 'full' ? Number(disp) : d.display, rect: tgt === 'rect' ? await api.schedules.currentRect() : null,
+      after: $('#sc-after').value,
+    };
+    const res = await api.schedules.save(sc);
+    if (res.error) return toast('error', res.error);
+    schedulesDialog(); render();
+  };
+}
+
 function exampleName() {
   const g = S.general;
   const pre = g.namePrefix === 'target' ? 'Screen ' : g.namePrefix === 'custom' ? `${g.customPrefix} ` : '';
@@ -363,8 +463,12 @@ function wirePage() {
   $('#show-frame', P)?.addEventListener('click', () => setMode('rect', true));
   $('#rect-size', P)?.addEventListener('change', (e) => { const [w, h] = e.target.value.split('x').map(Number); if (w) window.capturepro.rect.setSize(w, h); e.target.value = ''; });
   $('#pick-window', P)?.addEventListener('click', pickWindow);
+  $('#show-device', P)?.addEventListener('click', () => api.device.show());
   $('#browse-out', P)?.addEventListener('click', async () => { const d = await api.dialog.folder(); if (d) { await set('general.outputDir', d); render(); } });
   $('#open-out', P)?.addEventListener('click', () => api.outputs.openFolder());
+  $('#timer-set', P)?.addEventListener('click', timerDialog);
+  $('#timer-cancel', P)?.addEventListener('click', async () => { await api.timer.cancel(); timerState = null; render(); });
+  $('#sched-open', P)?.addEventListener('click', schedulesDialog);
   $('#logo-browse', P)?.addEventListener('click', async () => { const f = await api.dialog.image(); if (f) { await set('overlays.logo.image', f); render(); } });
   $('#text-add', P)?.addEventListener('click', () => editText(-1));
   $$('[data-text-edit]', P).forEach((b) => b.addEventListener('click', () => editText(Number(b.dataset.textEdit))));
@@ -420,7 +524,6 @@ async function fillCamDevices() {
 
 async function setMode(mode, showFrame) {
   if (status.state !== 'idle') { toast('warn', 'You cannot change the recording mode while recording.'); return; }
-  if (mode === 'device') { toast('info', 'Device recording is coming in the next phase.'); return; }
   await set('mode', mode); // main re-shows the capture frame whenever mode is set
   render();
 }
@@ -582,5 +685,7 @@ function renderMute(m) {
   api.on.toast(({ type, message }) => toast(type, message));
   api.outputs.onChanged(() => loadOutputs());
   api.settings.onChange((s) => { const modeChanged = s.mode !== S.mode; S = s; if (modeChanged) render(); });
+  timerState = await api.timer.get();
+  api.timer.onStatus((t) => { timerState = t; if (page === 'general') render(); });
   api.on.gameTarget((t) => { gameTarget = t; const el = $('#game-target'); if (el) el.innerHTML = gameTargetHtml(); });
 })();

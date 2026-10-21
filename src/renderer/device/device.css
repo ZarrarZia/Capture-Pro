@@ -1,0 +1,21 @@
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: #0a0c11; color: #e9edf5; font: 12px "Segoe UI", system-ui, sans-serif; overflow: hidden; user-select: none; }
+.bar { height: 38px; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: #171b24; border-bottom: 1px solid #262c3b; -webkit-app-region: drag; }
+.bar > *:not(.logo):not(.spacer):not(.time) { -webkit-app-region: no-drag; }
+.logo { width: 12px; height: 12px; border-radius: 50%; border: 3px solid #fff; position: relative; flex: none; }
+.logo::after { content: ''; position: absolute; inset: 2px; border-radius: 50%; background: #ff3b48; }
+select { background: #1d2230; color: #e9edf5; border: 1px solid #262c3b; border-radius: 5px; height: 26px; max-width: 170px; font: inherit; }
+button { height: 26px; min-width: 28px; border: 0; border-radius: 5px; background: transparent; color: #c5cddc; font: inherit; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+button:hover:not(:disabled) { background: #222838; color: #fff; }
+button:disabled { opacity: .35; }
+svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
+.rec { background: rgba(255,59,72,.18); padding: 0 10px; font-weight: 700; color: #fff; }
+.rec .dot { width: 10px; height: 10px; border-radius: 50%; background: #ff3b48; }
+.recording .rec .dot { border-radius: 2px; }
+.time { color: #ff3b48; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 60px; }
+.spacer { flex: 1; }
+.stage { position: absolute; top: 39px; left: 0; right: 0; bottom: 0; display: grid; place-items: center; overflow: hidden; }
+video { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; }
+.msg { position: absolute; color: #8f99ad; white-space: pre-line; text-align: center; }
+.opts { position: absolute; top: 44px; right: 8px; background: #1b2030; border: 1px solid #2c3346; border-radius: 8px; padding: 10px 12px; display: grid; gap: 8px; z-index: 3; }
+.opts label { display: flex; align-items: center; gap: 8px; justify-content: space-between; }

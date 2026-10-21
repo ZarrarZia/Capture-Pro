@@ -20,6 +20,7 @@ class Recorder extends EventEmitter {
   //   finalPath, container ('mp4'|'avi'|'mkv'|'mp3'|'wav'), audioTracks (0..2),
   //   buildArgs(segmentPath, pipePaths) -> ffmpeg args, priority, splitTracks
   // }
+  //   plan.external (device recording) = { start(), pause(), resume(), stop() -> tempFile, bytes(), transcodeArgs(input, output) }
   async start(plan) {
     if (this.state !== 'idle') throw new Error('Already recording');
     this.plan = plan;
@@ -31,18 +32,25 @@ class Recorder extends EventEmitter {
     this.activeMs = 0;
     this.segStart = 0;
     this.lastError = null;
-    await this._startSegment();
+    if (plan.external) {
+      try { await plan.external.start(); } catch (e) { this._cleanup(); throw e; }
+      this.segStart = Date.now();
+    } else {
+      await this._startSegment();
+    }
     this._setState('recording');
   }
 
   async pause() {
     if (this.state !== 'recording') return;
     this._setState('paused');
+    if (this.plan.external) { this.activeMs += Date.now() - this.segStart; return this.plan.external.pause(); }
     await this._endSegment();
   }
 
   async resume() {
     if (this.state !== 'paused') return;
+    if (this.plan.external) { await this.plan.external.resume(); this.segStart = Date.now(); this._setState('recording'); return; }
     await this._startSegment();
     this._setState('recording');
   }
@@ -50,9 +58,14 @@ class Recorder extends EventEmitter {
   // Returns { file, segments } on success. Keeps the raw MKV if the final remux fails.
   async stop() {
     if (this.state === 'idle' || this.state === 'stopping') return null;
+    const wasRecording = this.state === 'recording';
     this._setState('stopping');
-    await this._endSegment();
     try {
+      if (this.plan.external) {
+        if (wasRecording) this.activeMs += Date.now() - this.segStart;
+        return await this._finalizeExternal(await this.plan.external.stop());
+      }
+      await this._endSegment();
       return await this._finalize();
     } finally {
       this._cleanup();
@@ -63,7 +76,12 @@ class Recorder extends EventEmitter {
   async cancel() {
     if (this.state === 'idle') return;
     this._setState('stopping');
-    await this._endSegment();
+    if (this.plan.external) {
+      const tmp = await this.plan.external.stop().catch(() => null);
+      if (tmp) fs.rm(tmp, () => {});
+    } else {
+      await this._endSegment();
+    }
     this._cleanup();
     this._setState('idle');
   }
@@ -76,7 +94,8 @@ class Recorder extends EventEmitter {
   stats() {
     const running = this.state === 'recording' ? Date.now() - this.segStart : 0;
     let curBytes = 0;
-    if (this.curSegment) try { curBytes = fs.statSync(this.curSegment).size; } catch { /* not created yet */ }
+    if (this.plan?.external) curBytes = this.plan.external.bytes();
+    else if (this.curSegment) try { curBytes = fs.statSync(this.curSegment).size; } catch { /* not created yet */ }
     return { state: this.state, elapsedMs: this.activeMs + running, bytes: this.doneBytes + curBytes };
   }
 
@@ -86,6 +105,7 @@ class Recorder extends EventEmitter {
   async _startSegment() {
     const n = this.segments.length;
     const seg = path.join(this.tmpDir, `seg-${String(n).padStart(3, '0')}.mkv`);
+    if (this.plan.beforeSegment) await this.plan.beforeSegment(n);
     const pipes = [];
     this.sockets = [];
     this.servers = [];
@@ -128,12 +148,14 @@ class Recorder extends EventEmitter {
     // Fail fast if ffmpeg can't even start (bad device, unsupported encoder...).
     await new Promise((r) => setTimeout(r, 400));
     if (proc.exited && !proc.stopRequested) throw new Error(this.lastError || 'Failed to start video capture.');
+    this.emit('segment', n);
   }
 
   async _endSegment() {
     const proc = this.proc;
     if (!proc) return;
     this.proc = null;
+    this.emit('segment-end');
     this.activeMs += Date.now() - this.segStart;
     proc.stopRequested = true;
     if (!proc.exited) {
@@ -179,6 +201,22 @@ class Recorder extends EventEmitter {
       }
     }
     return { file: finalPath, extra };
+  }
+
+  // Device recordings arrive as one browser-encoded file; transcode it to the requested format.
+  async _finalizeExternal(tmp) {
+    if (!tmp || !fs.existsSync(tmp) || fs.statSync(tmp).size < 1024) throw new Error('Nothing was recorded.');
+    const { finalPath } = this.plan;
+    try {
+      await ffmpeg.run(this.plan.external.transcodeArgs(tmp, finalPath));
+      fs.rm(tmp, () => {});
+      return { file: finalPath };
+    } catch (e) {
+      const rescue = finalPath.replace(/\.[^.]+$/, '') + '.webm';
+      fs.renameSync(tmp, rescue);
+      this.emit('log', `Transcode failed (${e.message}); kept the original as WebM.`);
+      return { file: rescue, rescued: true };
+    }
   }
 
   _cleanup() {

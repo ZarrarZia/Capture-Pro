@@ -24,6 +24,8 @@ const defaults = () => ({
     window: null, // { hwnd, title, exe }
     recentSizes: [],
     sizePresets: [],
+    device: { videoId: '', format: '', audioId: 'default', deinterlace: 'none', rotate: 0, flipH: false, flipV: false },
+    deviceBounds: null,
   },
   video: {
     captureMethod: 'wgc', // wgc (Windows.Graphics.Capture) | dda (Desktop Duplication) | gdi
@@ -97,7 +99,7 @@ const defaults = () => ({
     texts: [], // { text, font, size, color, alpha, shadow, outline, position, margin }
   },
   autoComplete: { mode: 'off', timeSec: 3600, sizeMB: 4096, silenceSec: 60, silencePopup: true, after: 'nothing' },
-  timer: { enabled: false, startIn: 10, startAt: null, minimizeOnStart: true },
+  timer: { mode: 'in', startIn: 10, at: '09:00', minimizeOnStart: true },
   schedules: [],
   presets: [], // user-defined format presets { name, video:{...}, audio:{...} }
   ui: { lastPage: 'home' },

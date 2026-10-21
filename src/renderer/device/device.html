@@ -1,0 +1,31 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; media-src 'self' blob: mediastream:; img-src 'self' data: blob:">
+<link rel="stylesheet" href="device.css">
+<title>CapturePro – Device</title></head>
+<body>
+  <header class="bar">
+    <span class="logo"></span>
+    <select id="dev" title="Video device"></select>
+    <select id="fmt" title="Format"></select>
+    <select id="aud" title="Audio input"></select>
+    <span id="time" class="time"></span>
+    <span class="spacer"></span>
+    <button id="settings" title="Device options">Options</button>
+    <button id="zoom" title="Zoom to 100%">100%</button>
+    <button id="full" title="Fullscreen"><svg viewBox="0 0 16 16"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></button>
+    <button id="shot" title="Capture image"><svg viewBox="0 0 16 16"><rect x="2" y="4" width="12" height="9" rx="1.5"/><circle cx="8" cy="8.5" r="2.4"/></svg></button>
+    <button id="pause" title="Pause" disabled><svg viewBox="0 0 16 16"><path d="M5.5 3.5v9M10.5 3.5v9"/></svg></button>
+    <button id="rec" class="rec" title="Record / Stop"><span class="dot"></span><span id="rec-label">REC</span></button>
+    <button id="hide" title="Hide"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+  </header>
+  <main class="stage"><video id="video" muted playsinline></video><div id="msg" class="msg">Please select a video capture device.</div></main>
+  <div id="opts" class="opts" hidden>
+    <label>Deinterlacing <select id="o-deint"><option value="none">(None)</option><option value="odd">Odd fields</option><option value="even">Even fields</option><option value="blend">Blend</option></select></label>
+    <label>Rotate <select id="o-rot"><option value="0">(None)</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+    <label><input type="checkbox" id="o-fh"> Flip horizontal</label>
+    <label><input type="checkbox" id="o-fv"> Flip vertical</label>
+  </div>
+  <script src="../shared/tooltip.js"></script>
+  <script src="device.js"></script>
+</body></html>

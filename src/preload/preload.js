@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('capturepro', {
     mute: invoke('rec:mute'), onStatus: on('rec:status'), onMute: on('rec:mute'),
   },
   image: { capture: invoke('image:capture') },
+  timer: { get: invoke('timer:get'), set: invoke('timer:set'), cancel: invoke('timer:cancel'), onStatus: on('timer:status') },
+  schedules: { list: invoke('schedules:list'), save: invoke('schedules:save'), delete: invoke('schedules:delete'), currentRect: invoke('rect:current') },
   windows: { list: invoke('windows:list') },
   outputs: {
     list: invoke('outputs:list'), thumb: invoke('outputs:thumb'), open: invoke('outputs:open'), reveal: invoke('outputs:reveal'),
@@ -49,6 +51,12 @@ contextBridge.exposeInMainWorld('capturepro', {
     dragStart: () => ipcRenderer.send('webcam:dragStart'), dragMove: (dx, dy) => ipcRenderer.send('webcam:dragMove', dx, dy),
     dragEnd: () => ipcRenderer.send('webcam:dragEnd'), resize: (dir) => ipcRenderer.send('webcam:resize', dir),
     chunk: (buf) => ipcRenderer.send('webcam:chunk', buf), recordDone: () => ipcRenderer.send('webcam:recordDone'),
+  },
+  device: {
+    onConfig: on('device:config'), onRecord: on('device:record'), onSnapshot: on('device:snapshot'),
+    chunk: (buf) => ipcRenderer.send('device:chunk', buf), ack: (name, value) => ipcRenderer.send('device:ack', name, value),
+    zoom: (w, h) => ipcRenderer.send('device:zoom', w, h), fullscreen: () => ipcRenderer.send('device:fullscreen'),
+    hide: () => ipcRenderer.send('device:hide'), show: invoke('device:show'),
   },
   on: {
     toast: on('toast'), sound: on('sound'), gameTarget: on('game:target'), mouse: on('input:mouse'),
