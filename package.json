@@ -15,5 +15,12 @@
   "devDependencies": {
     "electron": "^33.4.11",
     "playwright-core": "^1.49.1"
+  },
+  "build": {
+    "appId": "com.capturepro.app",
+    "productName": "CapturePro",
+    "win": {
+      "icon": "assets/icon.ico"
+    }
   }
 }

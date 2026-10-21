@@ -264,7 +264,7 @@ const pages = {
 
   about() {
     const kinds = Object.entries(APP.videoCodecs).map(([, f]) => `<tr><td>${esc(f.label)}</td>${['cpu', 'nvenc', 'qsv', 'amf'].map((k) => `<td>${f.encoders[k] ? (APP.available.includes(f.encoders[k]) ? '<span class="pill ok">yes</span>' : '<span class="pill">no</span>') : '–'}</td>`).join('')}</tr>`).join('');
-    return `<h1>About CapturePro</h1><p class="lead">Version ${esc(APP.version)}</p>
+    return `<img class="about-logo" src="../../../assets/logo.png" alt="CapturePro"><p class="lead">Version ${esc(APP.version)}</p>
     <div class="section"><h2>Engine</h2>${row('FFmpeg', `<div class="path grow">${esc(APP.ffmpegPath || 'not found')}</div>`)}
       <table class="enc"><tr><th>Codec</th><th>CPU</th><th>NVIDIA NVENC</th><th>Intel Quick Sync</th><th>AMD VCE/VCN</th></tr>${kinds}</table></div>
     <div class="section"><h2>Settings</h2><button class="btn danger" id="reset-all">Reset all settings to defaults</button></div>`;

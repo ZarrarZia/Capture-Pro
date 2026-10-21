@@ -22,8 +22,7 @@ html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
 .hole { position: absolute; left: 0; right: 0; top: var(--barh); bottom: 0; border: var(--border) solid var(--edge); }
 .recording .hole, .recording #bar { border-color: var(--edge-rec); }
 .paused .hole { border-style: dashed; }
-.logo { width: 14px; height: 14px; border-radius: 50%; border: 3px solid #fff; display: inline-block; margin: 0 4px; position: relative; }
-.logo::after { content: ''; position: absolute; inset: 2px; border-radius: 50%; background: var(--edge-rec); }
+.logo { height: 16px; width: auto; flex: none; margin: 0 6px 0 2px; -webkit-user-drag: none; }
 .spacer { flex: 1; }
 button { font: inherit; color: var(--text); background: transparent; border: 0; border-radius: 4px; height: 24px; padding: 0 6px; cursor: pointer; }
 button:hover:not(:disabled) { background: rgba(255,255,255,.1); }
