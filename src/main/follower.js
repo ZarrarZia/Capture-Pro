@@ -2,6 +2,7 @@
 const net = require('net');
 const { screen } = require('electron');
 const { ZmqReq } = require('./zmq');
+const platform = require('./platform');
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -46,7 +47,8 @@ class MouseFollower {
   async _tick() {
     if (this.busy || !this.zmq) return;
     const { w, h, monitor: m } = this.f;
-    const c = screen.dipToScreenPoint(screen.getCursorScreenPoint());
+    // follow.toPhys (macOS) maps the cursor into the captured screen's pixel space.
+    const c = (this.f.toPhys || platform.dipToPhysPoint)(screen.getCursorScreenPoint());
     const tx = clamp(c.x - m.x - w / 2, 0, m.w - w);
     const ty = clamp(c.y - m.y - h / 2, 0, m.h - h);
     // Ease towards the target so the view pans smoothly instead of jumping.

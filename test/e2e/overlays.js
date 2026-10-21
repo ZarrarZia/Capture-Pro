@@ -56,6 +56,7 @@ function osInput(script) {
     await sleep(2500);
     await cam.screenshot({ path: path.join(shotDir, 'webcam-overlay.png') });
 
+    console.log("step: countdown");
     // Countdown overlay shows before capture begins.
     await main.click('#btn-rec');
     const overlay = await byUrl('overlay.html');
@@ -66,7 +67,8 @@ function osInput(script) {
     await main.waitForSelector('body.recording', { timeout: 15000 });
     const recStart = Date.now();
 
-    // Click on CapturePro's own title bar (harmless) and press F13.
+    console.log("step: click+key");
+    // Click on CapturePro own title bar (harmless) and press F13.
     const { bounds, scale } = await app.evaluate(({ BrowserWindow, screen }) => {
       const w = BrowserWindow.getAllWindows().find((x) => x.getTitle() === 'CapturePro');
       return { bounds: w.getBounds(), scale: screen.getPrimaryDisplay().scaleFactor };
@@ -86,6 +88,7 @@ function osInput(script) {
     const keyText = await overlay.textContent('#keys');
     assert(/F13/.test(keyText), `keystroke overlay shows "${keyText}"`);
 
+    console.log("step: drawing");
     // Drawing mode: draw a box and a pen stroke on the overlay.
     await main.click('#btn-draw');
     await byUrl('drawbar.html');

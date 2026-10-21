@@ -1,16 +1,12 @@
 // Turns the selected recording mode into an ffmpeg capture source in physical pixels.
-const { screen } = require('electron');
+//
+// macOS: the helper reports monitors/windows in points (= Electron DIP) with a per-monitor
+// `scale`; AVFoundation captures each screen in pixels, so crops are scaled per display.
+const platform = require('./platform');
 
-// Physical rect of a DIP rect (Windows: accounts for per-monitor scaling).
-function toPhysical(rect) {
-  const r = screen.dipToScreenRect(null, { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
-  return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
-}
-
-function toDip(r) {
-  const d = screen.screenToDipRect(null, { x: r.x, y: r.y, width: r.w, height: r.h });
-  return { x: Math.round(d.x), y: Math.round(d.y), w: Math.round(d.width), h: Math.round(d.height) };
-}
+// Physical rect of a DIP rect (Windows: accounts for per-monitor scaling; macOS: points).
+const toPhysical = (rect) => platform.dipToPhysRect(rect);
+const toDip = (r) => platform.physToDipRect(r);
 
 function monitorFor(monitors, r) {
   const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
@@ -20,9 +16,23 @@ function monitorFor(monitors, r) {
 const contains = (m, r) => r.x >= m.x && r.y >= m.y && r.x + r.w <= m.x + m.w && r.y + r.h <= m.y + m.h;
 const even = (n) => n - (n % 2);
 
+// macOS: a points rect → AVFoundation source with a pixel crop inside its screen (clamped to it).
+function avfRegion(monitors, r) {
+  const m = monitorFor(monitors, r);
+  const s = m.scale || 1;
+  const x0 = Math.max(r.x, m.x), y0 = Math.max(r.y, m.y);
+  const x1 = Math.min(r.x + r.w, m.x + m.w), y1 = Math.min(r.y + r.h, m.y + m.h);
+  const region = {
+    x: Math.round((x0 - m.x) * s), y: Math.round((y0 - m.y) * s),
+    w: Math.max(2, even(Math.round((x1 - x0) * s))), h: Math.max(2, even(Math.round((y1 - y0) * s))),
+  };
+  return { kind: 'avf', screen: m.index, scale: s, region };
+}
+
 // Region (physical) → source. Uses the monitor's capture with crop when the region fits one monitor,
 // otherwise GDI over the virtual desktop.
 function regionSource(monitors, r, method) {
+  if (platform.isMac) return avfRegion(monitors, r);
   r = { ...r, w: Math.max(2, even(r.w)), h: Math.max(2, even(r.h)) };
   const m = monitorFor(monitors, r);
   if (method !== 'gdi' && m && contains(m, r)) {
@@ -36,6 +46,11 @@ function regionSource(monitors, r, method) {
 }
 
 function displaySource(monitors, index, method) {
+  if (platform.isMac) {
+    // AVFoundation records one screen; "All displays" records the main display.
+    const m = monitors[index] || monitors.find((mm) => mm.primary) || monitors[0];
+    return { kind: 'avf', screen: m.index, scale: m.scale || 1 };
+  }
   if (index === -1 || method === 'gdi') {
     const x = Math.min(...monitors.map((m) => m.x)), y = Math.min(...monitors.map((m) => m.y));
     const w = Math.max(...monitors.map((m) => m.x + m.w)) - x, h = Math.max(...monitors.map((m) => m.y + m.h)) - y;
@@ -48,6 +63,11 @@ function displaySource(monitors, index, method) {
 // Physical rect actually covered by a source (for positioning overlays).
 function sourceRect(monitors, src) {
   if (src.kind === 'gdi') return src.region;
+  if (src.kind === 'avf') {
+    const m = monitors[src.screen] || monitors[0];
+    const s = m.scale || 1, r = src.region;
+    return r ? { x: m.x + r.x / s, y: m.y + r.y / s, w: r.w / s, h: r.h / s } : { x: m.x, y: m.y, w: m.w, h: m.h };
+  }
   if (src.kind === 'dda') {
     const m = monitors[src.outputIdx] || monitors[0];
     return src.region ? { x: m.x + src.region.x, y: m.y + src.region.y, w: src.region.w, h: src.region.h } : { x: m.x, y: m.y, w: m.w, h: m.h };
@@ -60,4 +80,4 @@ function sourceRect(monitors, src) {
   return null;
 }
 
-module.exports = { toPhysical, toDip, regionSource, displaySource, monitorFor, sourceRect };
+module.exports = { toPhysical, toDip, regionSource, displaySource, monitorFor, sourceRect, avfRegion };

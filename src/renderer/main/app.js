@@ -6,6 +6,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fileUrl = (p) => 'file:///' + encodeURI(p.replace(/\\/g, '/')).replace(/#/g, '%23').replace(/\?/g, '%3F');
 
 let APP = null; // init payload
+const isMac = () => APP?.platform === 'darwin';
 let S = null;   // current settings
 let page = 'home';
 let status = { state: 'idle', elapsedMs: 0, bytes: 0 };
@@ -108,12 +109,12 @@ const pages = {
         <span class="hint">Drag the frame's top bar to move it, drag its edges to resize. Arrow keys nudge, Shift+arrows resize.</span></div>
         ${row('Size presets', `<select id="rect-size">${opt('', 'Choose a size…', '')}${[[640, 360], [854, 480], [1280, 720], [1920, 1080], [640, 480], [800, 600], [1024, 768]].map(([w, h]) => opt(`${w}x${h}`, `${w} × ${h}`, '')).join('')}</select>`)}</div>`;
     } else if (m.id === 'full') {
-      detail = `<div class="section"><h2>Display</h2>${row('Recording target', select('target.display', [...APP.displays.map((d) => [d.index, d.label]), [-1, 'All displays']], 'data-t="num"'))}</div>`;
+      detail = `<div class="section"><h2>Display</h2>${row('Recording target', select('target.display', [...APP.displays.map((d) => [d.index, d.label]), ...(isMac() ? [] : [[-1, 'All displays']])], 'data-t="num"'))}</div>`;
     } else if (m.id === 'window') {
       const w = S.target.window;
       detail = `<div class="section"><h2>Target window</h2><div class="target-box">
         <div class="grow">${w ? `<b>${esc(w.title)}</b><div class="hint">${esc(w.exe)}.exe</div>` : '<span class="hint">No window selected.</span>'}</div>
-        <button class="btn primary" id="pick-window">${w ? 'Change window' : 'Choose a window'}</button></div></div>`;
+        <button class="btn primary" id="pick-window">${w ? 'Change window' : 'Choose a window'}</button></div>${isMac() ? '<p class="hint">On macOS the window&rsquo;s area of the screen is recorded, so keep the window in front and don&rsquo;t move it while recording.</p>' : ''}</div>`;
     } else if (m.id === 'mouse') {
       detail = `<div class="section"><h2>Capture size</h2>${row('Width', num('target.mouseSize.w', 64, 7680, 'px'))}${row('Height', num('target.mouseSize.h', 64, 4320, 'px'))}</div>`;
     } else if (m.id === 'game') {
@@ -173,7 +174,7 @@ const pages = {
       <div class="row">${check('video.autoPause.enabled', 'Auto-pause recording after')}${select('video.autoPause.idleSec', [5, 7, 10, 12, 15, 20, 25, 30, 40, 50, 60].map((n) => [n, `${n} sec`]), 'data-t="num"')}<span class="unit">of inactivity (screen modes)</span></div>
       ${row('Countdown timer', select('video.countdown', [[0, 'Off'], ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => [n, `${n} sec`])], 'data-t="num"'))}
       ${hotkey('hotkeys.toggleDraw', 'Drawing mode hotkey')}
-      ${row('Capture method', select('video.captureMethod', [['wgc', 'Windows Graphics Capture (Windows 10+, recommended)'], ['dda', 'Desktop Duplication (Windows 8+)'], ['gdi', 'GDI (compatibility)']]))}
+      ${isMac() ? row('Capture method', '<span class="hint">macOS screen capture (AVFoundation)</span>') : row('Capture method', select('video.captureMethod', [['wgc', 'Windows Graphics Capture (Windows 10+, recommended)'], ['dda', 'Desktop Duplication (Windows 8+)'], ['gdi', 'GDI (compatibility)']]))}
       ${row('Recording priority', select('video.priority', [['normal', '[Normal] General task priority'], ['high', '[High] Higher than normal priority'], ['highest', '[Highest] Other tasks may be slower']]))}</div>
     <div class="section"><h2><span class="grow">Format</span>${select('', [['', 'Apply a preset…'], ...APP.presets.map((p) => [p.id, p.name]), ...S.presets.map((p, i) => [`user:${i}`, `★ ${p.name}`])], 'id="preset"')}<button class="btn" id="save-preset">Save as preset</button></h2>
       <div class="grid2"><div>

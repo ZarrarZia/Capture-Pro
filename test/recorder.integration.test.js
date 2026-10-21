@@ -10,7 +10,8 @@ const { Recorder } = require('../src/main/recorder');
 const { buildRecordArgs } = require('../src/main/capture-args');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const hasFfmpeg = !!ffmpeg.locate();
+// These tests capture through Desktop Duplication, so they run on Windows only.
+const hasFfmpeg = process.platform === 'win32' && !!ffmpeg.locate();
 
 function plan(dir, opts = {}) {
   return {

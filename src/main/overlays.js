@@ -11,6 +11,7 @@
 const { BrowserWindow, screen } = require('electron');
 const { EventEmitter } = require('events');
 const path = require('path');
+const platform = require('./platform');
 
 // Channels whose latest value must be replayed to overlays created later.
 const STICKY = new Set(['overlay:draw', 'overlay:interactive']);
@@ -136,7 +137,7 @@ class Overlays extends EventEmitter {
   // Physical (hook) coordinates → DIP.
   mouse(ev) {
     if (!this.active) return;
-    const p = screen.screenToDipPoint({ x: ev.x, y: ev.y });
+    const p = platform.physToDipPoint({ x: ev.x, y: ev.y });
     this.sendAt('overlay:mouse', p, { type: ev.type, btn: ev.btn });
   }
 

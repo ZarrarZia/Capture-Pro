@@ -11,7 +11,9 @@
     "test": "node --test \"test/*.test.js\"",
     "test:e2e": "node test/e2e/drawing.js && node test/e2e/smoke.js && node test/e2e/overlays.js && node test/e2e/automation.js && node test/e2e/microphone.js && node test/e2e/stress.js",
     "prepare:ffmpeg": "node scripts/prepare-ffmpeg.js",
-    "dist": "npm run build:helper && npm run prepare:ffmpeg && electron-builder --win"
+    "dist": "npm run build:helper && npm run prepare:ffmpeg && electron-builder --win",
+    "prepare:ffmpeg:mac": "node scripts/prepare-ffmpeg-mac.js",
+    "dist:mac": "npm run build:helper && npm run prepare:ffmpeg:mac && electron-builder --mac --publish never"
   },
   "license": "UNLICENSED",
   "devDependencies": {
@@ -36,16 +38,6 @@
     "asarUnpack": [
       "assets/**/*"
     ],
-    "extraResources": [
-      {
-        "from": "native/bin/CaptureProHelper.exe",
-        "to": "native/CaptureProHelper.exe"
-      },
-      {
-        "from": "vendor/ffmpeg",
-        "to": "ffmpeg"
-      }
-    ],
     "win": {
       "icon": "assets/icon.ico",
       "target": [
@@ -62,7 +54,17 @@
           ]
         }
       ],
-      "executableName": "CapturePro"
+      "executableName": "CapturePro",
+      "extraResources": [
+        {
+          "from": "native/bin/CaptureProHelper.exe",
+          "to": "native/CaptureProHelper.exe"
+        },
+        {
+          "from": "vendor/ffmpeg",
+          "to": "ffmpeg"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -79,6 +81,50 @@
     },
     "portable": {
       "artifactName": "CapturePro-Portable-${version}.${ext}"
+    },
+    "afterPack": "scripts/after-pack.js",
+    "mac": {
+      "category": "public.app-category.video",
+      "icon": "assets/icon-mac.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "identity": null,
+      "hardenedRuntime": false,
+      "minimumSystemVersion": "11.0",
+      "artifactName": "CapturePro-${version}-mac-${arch}.${ext}",
+      "extendInfo": {
+        "NSCameraUsageDescription": "CapturePro uses the camera for the webcam overlay and device recording.",
+        "NSMicrophoneUsageDescription": "CapturePro records your microphone together with the screen.",
+        "NSAppleEventsUsageDescription": "CapturePro can shut down or sleep the Mac after a recording finishes, if you enable it."
+      },
+      "extraResources": [
+        {
+          "from": "native/bin/CaptureProHelper",
+          "to": "native/CaptureProHelper"
+        },
+        {
+          "from": "vendor/ffmpeg-mac-${arch}",
+          "to": "ffmpeg"
+        }
+      ]
+    },
+    "dmg": {
+      "title": "CapturePro ${version}",
+      "artifactName": "CapturePro-${version}-mac-${arch}.${ext}"
     }
   },
   "author": "CapturePro"

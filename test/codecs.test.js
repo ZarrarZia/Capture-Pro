@@ -49,7 +49,8 @@ test('buildRecordArgs: WGC monitor with crop, logo, text and two audio tracks', 
   assert.match(fc, /fps=60,scale=/);
   assert.match(fc, /\[2:v\]format=rgba,colorchannelmixer=aa=0.5\[logo\]/);
   assert.match(fc, /overlay=x=8:y=H-h-9/);
-  assert.match(fc, /drawtext=fontfile='C:\/Windows\/Fonts\/arial.ttf':textfile='C:\/t.txt'/);
+  const font = process.platform === 'darwin' ? '/System/Library/Fonts/Supplemental/Arial.ttf' : 'C:/Windows/Fonts/arial.ttf';
+  assert.ok(fc.includes(`drawtext=fontfile='${font}':textfile='C:/t.txt'`), fc);
   assert.match(fc, /format=nv12\[vout\]$/);
   assert.deepEqual(args.filter((a, i) => args[i - 1] === '-map'), ['[vout]', '0:a', '1:a']);
   assert.ok(!args.includes('-fps_mode'), 'CFR must not force VFR');

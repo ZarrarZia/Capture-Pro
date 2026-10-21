@@ -5,11 +5,13 @@
 //         | { kind: 'wgc-window', hwnd }
 //         | { kind: 'dda', outputIdx, region? {x,y,w,h} }       // region relative to that monitor
 //         | { kind: 'gdi', region {x,y,w,h} }                    // virtual-desktop coordinates
+//         | { kind: 'avf', screen, region? {x,y,w,h} }           // macOS AVFoundation; region in that screen's pixels
 //         | null                                                 // audio only
 //   showCursor, video (settings.video), audio (settings.audio), ffEncoder,
 //   audioPipes: [path, path?], container (final container), logo?, texts?, output
 // }
 const { pixelFormat, videoEncoderArgs, audioEncoderArgs, scaleFilter } = require('./codecs');
+const { isMac, macFontFile } = require('./platform');
 
 const FONT_FILES = {
   'Arial': 'arial.ttf', 'Arial Black': 'ariblk.ttf', 'Calibri': 'calibri.ttf', 'Cambria': 'cambria.ttc',
@@ -67,6 +69,18 @@ function buildRecordArgs(job) {
     if (sf) {
       chains.push(`${sf}[src]`);
       vIn = '[src]';
+    } else if (source.kind === 'avf') {
+      inputs.push(avfInput(source, fps, job.showCursor));
+      const steps = [];
+      if (job.follow) {
+        const f = job.follow;
+        steps.push(`zmq=b=tcp\\\\://127.0.0.1\\\\:${f.port}`,`crop@follow=w=${f.w}:h=${f.h}:x=${f.x}:y=${f.y}`);
+      } else if (source.region) {
+        const r = source.region;
+        steps.push(`crop=${r.w}:${r.h}:${r.x}:${r.y}`);
+      }
+      chains.push(`[0:v]${steps.length ? steps.join(',') : 'null'}[src]`);
+      vIn = '[src]';
     } else if (source.kind === 'gdi') {
       const r = source.region;
       inputs.push(['-thread_queue_size', '512', '-f', 'gdigrab', '-framerate', String(fps), '-draw_mouse', job.showCursor ? '1' : '0',
@@ -105,7 +119,7 @@ function buildRecordArgs(job) {
     const texts = (job.texts || []).filter((t) => t.textFile);
     if (texts.length) {
       const dt = texts.map((t) => {
-        const font = `C:/Windows/Fonts/${FONT_FILES[t.font] || 'arial.ttf'}`;
+        const font = isMac ? macFontFile(t.font) : `C:/Windows/Fonts/${FONT_FILES[t.font] || 'arial.ttf'}`;
         const m = t.margin ?? 16;
         const { x, y } = positionExpr(t.position || 'top-left', m, m, 'text_w', 'text_h', 'w', 'h');
         const alpha = Math.max(0, Math.min(100, t.alpha ?? 100)) / 100;
@@ -141,7 +155,12 @@ function buildImageArgs(job) {
   const chains = [];
   let cur;
   const sf = sourceFilter(job.source, 30, job.showCursor, false);
-  if (sf) { chains.push(`${sf}[src]`); cur = '[src]'; } else {
+  if (sf) { chains.push(`${sf}[src]`); cur = '[src]'; } else if (job.source.kind === 'avf') {
+    inputs.push(avfInput(job.source, 30, job.showCursor));
+    const r = job.source.region;
+    chains.push(`[0:v]${r ? `crop=${r.w}:${r.h}:${r.x}:${r.y}` : 'null'}[src]`);
+    cur = '[src]';
+  } else {
     const r = job.source.region;
     inputs.push(['-f', 'gdigrab', '-draw_mouse', job.showCursor ? '1' : '0', '-offset_x', String(r.x), '-offset_y', String(r.y), '-video_size', `${r.w}x${r.h}`, '-i', 'desktop']);
     cur = '[0:v]';
@@ -163,6 +182,11 @@ function buildImageArgs(job) {
   if (job.format === 'jpg') args.push('-q:v', String(Math.round(31 - 29 * Math.max(20, Math.min(100, job.jpgQuality || 90)) / 100)));
   args.push('-update', '1', job.output);
   return args;
+}
+
+// macOS screen input ("Capture screen N" is AVFoundation's name for display N).
+function avfInput(src, fps, showCursor) {
+  return ['-thread_queue_size', '512', '-f', 'avfoundation', '-capture_cursor', showCursor ? '1' : '0', '-framerate', String(fps), '-i', `Capture screen ${src.screen || 0}:none`];
 }
 
 // Writes drawtext's textfile content, translating {date}/{time}/{datetime} macros.

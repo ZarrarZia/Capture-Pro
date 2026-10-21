@@ -3,22 +3,33 @@ const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { VIDEO_CODECS } = require('./codecs');
+const platform = require('./platform');
 
 let ffmpegPath = null;
 let ffprobePath = null;
 
 function locate(resourcesDir) {
   const candidates = [];
-  if (resourcesDir) candidates.push(path.join(resourcesDir, 'ffmpeg', 'ffmpeg.exe'));
+  if (resourcesDir) candidates.push(path.join(resourcesDir, 'ffmpeg', platform.ffmpegExe));
   try {
-    candidates.push(...execFileSync('where', ['ffmpeg'], { encoding: 'utf8', windowsHide: true }).split(/\r?\n/).filter(Boolean));
+    const finder = platform.isWin ? 'where' : 'which';
+    candidates.push(...execFileSync(finder, ['ffmpeg'], { encoding: 'utf8', windowsHide: true }).split(/\r?\n/).filter(Boolean));
   } catch { /* not on PATH */ }
+  candidates.push(...platform.ffmpegCandidates());
   ffmpegPath = candidates.find((p) => fs.existsSync(p)) || null;
   if (ffmpegPath) {
-    const probe = path.join(path.dirname(ffmpegPath), 'ffprobe.exe');
+    const probe = path.join(path.dirname(ffmpegPath), platform.ffprobeExe);
     ffprobePath = fs.existsSync(probe) ? probe : null;
   }
   return ffmpegPath;
+}
+
+// Optional filters this ffmpeg build provides (e.g. zmq for around-mouse following).
+function detectFilters(names) {
+  try {
+    const out = execFileSync(ffmpegPath, ['-hide_banner', '-filters'], { encoding: 'utf8', windowsHide: true, maxBuffer: 8 << 20 });
+    return new Set(names.filter((n) => new RegExp(`\\s${n}\\s`).test(out)));
+  } catch { return new Set(); }
 }
 
 const getPath = () => ffmpegPath;
@@ -55,7 +66,7 @@ async function detectEncoders(cacheFile) {
   const names = new Set();
   for (const fam of Object.values(VIDEO_CODECS)) for (const n of Object.values(fam.encoders)) names.add(n);
   const results = await Promise.all([...names].map(async (name) => {
-    const pix = /_(qsv|nvenc|amf)$/.test(name) ? 'nv12' : name === 'mjpeg' ? 'yuvj420p' : 'yuv420p';
+    const pix = /_(qsv|nvenc|amf|videotoolbox)$/.test(name) ? 'nv12' : name === 'mjpeg' ? 'yuvj420p' : 'yuv420p';
     try {
       await run(['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=640x360:r=30', '-frames:v', '3',
         '-pix_fmt', pix, '-c:v', name, '-f', 'null', '-'], { timeoutMs: 20000 });
@@ -85,4 +96,4 @@ async function thumbnail(file, out, atSec = 1) {
   return out;
 }
 
-module.exports = { locate, getPath, run, detectEncoders, probe, thumbnail, lastError };
+module.exports = { locate, getPath, run, detectEncoders, detectFilters, probe, thumbnail, lastError };

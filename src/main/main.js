@@ -15,6 +15,7 @@ const { Helper } = require('./helper');
 const { outputPath } = require('./naming');
 const { toPhysical, toDip, regionSource, displaySource, sourceRect, monitorFor } = require('./targets');
 const { MouseFollower } = require('./follower');
+const platform = require('./platform');
 const scheduler = require('./scheduler');
 const outputs = require('./outputs');
 const { Overlays } = require('./overlays');
@@ -27,7 +28,8 @@ const PRELOAD = path.join(ROOT, 'src', 'preload', 'preload.js');
 // Packaged builds: assets are unpacked next to app.asar (Windows needs real files for tray and
 // notification icons) and the native helper ships in resources/, since an .exe can't run from an asar.
 const ASSETS = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets') : path.join(ROOT, 'assets');
-const HELPER_EXE = app.isPackaged ? path.join(process.resourcesPath, 'native', 'CaptureProHelper.exe') : path.join(ROOT, 'native', 'bin', 'CaptureProHelper.exe');
+const HELPER_NAME = platform.isMac ? 'CaptureProHelper' : 'CaptureProHelper.exe';
+const HELPER_EXE = app.isPackaged ? path.join(process.resourcesPath, 'native', HELPER_NAME) : path.join(ROOT, 'native', 'bin', HELPER_NAME);
 const ICON = path.join(ASSETS, 'icon.png');
 const RECT_BAR = 34; // DIP height of the capture frame's control bar
 const RECT_BORDER = 3;
@@ -60,6 +62,7 @@ let hotkeyCapture = null;
 let imageRepeatTimer = null;
 let overlays, webcam, device, drawbarWin;
 let monitorsCache = [];
+let filterCaps = new Set(['zmq']); // replaced by real detection at startup
 const drawState = { enabled: false, tool: 'pen', color: '#ff3b48', width: 4, whiteboard: false };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const SCREEN_MODES = ['rect', 'full', 'window', 'mouse', 'game'];
@@ -165,7 +168,11 @@ function saveRectFromWindow() {
 function sendRectInfo() {
   if (!rectWin) return;
   const r = interiorFromWindow(rectWin.getBounds());
-  const p = toPhysical(r);
+  let p = toPhysical(r);
+  if (platform.isMac) { // points → recorded pixels (Retina)
+    const k = screen.getDisplayMatching(rectWin.getBounds()).scaleFactor;
+    p = { w: Math.round(p.w * k), h: Math.round(p.h * k) };
+  }
   rectWin.webContents.send('rect:info', { dip: r, physical: { w: p.w - (p.w % 2), h: p.h - (p.h % 2) } });
 }
 
@@ -202,8 +209,14 @@ function notify(title, body, onClick) {
 function playSound(name) { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('sound', name); }
 
 // ---------------------------------------------------------------------------- tray
+// macOS menu-bar icons are 18 pt; Windows uses the 32 px images as they are.
+function trayImage(name) {
+  const img = nativeImage.createFromPath(path.join(ASSETS, name));
+  return platform.isMac ? img.resize({ width: 18, height: 18 }) : img;
+}
+
 function createTray() {
-  tray = new Tray(nativeImage.createFromPath(path.join(ASSETS, 'tray.png')));
+  tray = new Tray(trayImage('tray.png'));
   tray.setToolTip('CapturePro');
   tray.on('click', () => showMain());
   refreshTray();
@@ -212,7 +225,7 @@ function createTray() {
 function refreshTray() {
   if (!tray) return;
   const active = recorder.state !== 'idle';
-  tray.setImage(nativeImage.createFromPath(path.join(ASSETS, active ? 'tray-rec.png' : 'tray.png')));
+  tray.setImage(trayImage(active ? 'tray-rec.png' : 'tray.png'));
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: active ? 'Stop recording' : 'Start recording', click: () => toggleRecording() },
     { label: recorder.state === 'paused' ? 'Resume' : 'Pause', enabled: active, click: () => togglePause() },
@@ -298,6 +311,25 @@ async function startAudioEngine(plan) {
   });
 }
 
+// Around mouse without the Windows capture path: macOS follows the cursor in the screen's pixel space;
+// an ffmpeg without the zmq filter records a fixed area centred on the cursor at start.
+function mouseTargetFallback(monitors, c, s, method, even) {
+  const m = monitorFor(monitors, { x: c.x, y: c.y, w: 1, h: 1 });
+  if (platform.isMac && filterCaps.has('zmq')) {
+    const k = m.scale || 1;
+    const pw = Math.round(m.w * k), ph = Math.round(m.h * k);
+    const w = even(Math.min(s.target.mouseSize.w, pw)), h = even(Math.min(s.target.mouseSize.h, ph));
+    const x = Math.max(0, Math.min(pw - w, Math.round((c.x - m.x) * k - w / 2)));
+    const y = Math.max(0, Math.min(ph - h, Math.round((c.y - m.y) * k - h / 2)));
+    // The follower works in this screen's pixel space.
+    const follow = { w, h, x, y, monitor: { x: m.x * k, y: m.y * k, w: pw, h: ph }, toPhys: (p) => ({ x: p.x * k, y: p.y * k }) };
+    return { source: { kind: 'avf', screen: m.index, scale: k }, follow, name: 'Screen', regionPhys: { x: m.x + x / k, y: m.y + y / k, w: w / k, h: h / k } };
+  }
+  const sz = s.target.mouseSize;
+  const r = { x: Math.round(c.x - sz.w / 2), y: Math.round(c.y - sz.h / 2), w: sz.w, h: sz.h };
+  return { source: regionSource(monitors, r, method), name: 'Screen', regionPhys: r };
+}
+
 // Returns { source, name, regionPhys } for the current mode.
 async function resolveTarget(s) {
   const monitors = await helper.monitors();
@@ -313,9 +345,10 @@ async function resolveTarget(s) {
       return withRect({ source: displaySource(monitors, s.target.display, method), name: 'Screen' });
     case 'mouse': {
       // Capture the whole monitor under the cursor and steer a crop window with the cursor.
-      const c = screen.dipToScreenPoint(screen.getCursorScreenPoint());
-      const m = monitorFor(monitors, { x: c.x, y: c.y, w: 1, h: 1 });
+      const c = platform.dipToPhysPoint(screen.getCursorScreenPoint());
       const even = (n) => n - (n % 2);
+      if (platform.isMac || !filterCaps.has('zmq')) return mouseTargetFallback(monitors, c, s, method, even);
+      const m = monitorFor(monitors, { x: c.x, y: c.y, w: 1, h: 1 });
       const w = even(Math.min(s.target.mouseSize.w, m.w)), h = even(Math.min(s.target.mouseSize.h, m.h));
       const x = Math.max(0, Math.min(m.w - w, Math.round(c.x - m.x - w / 2)));
       const y = Math.max(0, Math.min(m.h - h, Math.round(c.y - m.y - h / 2)));
@@ -327,12 +360,14 @@ async function resolveTarget(s) {
       if (!w) throw new Error('Please select a window to record first (Home → Specific window).');
       const live = (await helper.windows()).find((x) => x.hwnd === w.hwnd);
       if (!live) throw new Error(`The window "${w.title}" is no longer open. Please select it again.`);
+      if (platform.isMac) return { source: regionSource(monitors, live, method), name: live.exe || 'Window', regionPhys: live };
       return { source: { kind: 'wgc-window', hwnd: w.hwnd }, name: live.exe || 'Window', regionPhys: live };
     }
     case 'game': {
       const fg = await helper.foreground().catch(() => null);
       const target = fg && fg.pid !== process.pid && fg.class !== 'Progman' && fg.class !== 'WorkerW' ? fg : lastGameTarget;
       if (!target) throw new Error('No game window detected. Start your game, then press the record hotkey while it is in front.');
+      if (platform.isMac) return { source: regionSource(monitors, target, method), name: target.exe || 'Game', regionPhys: target };
       return { source: { kind: 'wgc-window', hwnd: target.hwnd }, name: target.exe || 'Game', regionPhys: target };
     }
     case 'audio':
@@ -431,7 +466,7 @@ async function startRecordingInner({ scheduleId = null } = {}) {
   try {
     await recorder.start(plan(ffEncoder));
   } catch (e) {
-    if (ffEncoder && /_(nvenc|qsv|amf)$/.test(ffEncoder) && available.has('libx264') && s.video.codec === 'h264') {
+    if (ffEncoder && /_(nvenc|qsv|amf|videotoolbox)$/.test(ffEncoder) && available.has('libx264') && s.video.codec === 'h264') {
       toast('warn', `Failed to initialize ${ffEncoder} (${e.message}). Retrying with H.264 (CPU).`);
       try { await recorder.start(plan('libx264')); } catch (e2) { return failStart(e2); }
     } else {
@@ -454,7 +489,8 @@ async function startRecordingInner({ scheduleId = null } = {}) {
 function failStart(e) {
   audioWin?.webContents.send('audio:stop');
   updateOverlays();
-  toast('error', `Failed to start video capture.\n${e.message}`);
+  const hint = platform.isMac ? '\nOn macOS, allow CapturePro in System Settings → Privacy & Security → Screen Recording (and Microphone), then restart CapturePro.' : '';
+  toast('error', `Failed to start video capture.\n${e.message}${hint}`);
 }
 
 // Repeated stop requests (hotkey + tray + "Stop and exit") share the same in-flight save.
@@ -730,8 +766,8 @@ async function autoComplete(after) {
   switch (after) {
     case 'new': setTimeout(() => startRecording(), 300); break;
     case 'exit': quit(); break;
-    case 'shutdown': execFile('shutdown', ['/s', '/t', '60', '/c', 'CapturePro: recording finished. Run "shutdown /a" to cancel.']); break;
-    case 'hibernate': execFile('shutdown', ['/h']); break;
+    case 'shutdown': platform.powerAction('shutdown'); break;
+    case 'hibernate': platform.powerAction('hibernate'); break;
     default: break;
   }
 }
@@ -803,6 +839,7 @@ function registerIpc() {
     settings: settings.get(),
     version: app.getVersion(),
     ffmpegPath: ffmpeg.getPath(),
+    platform: process.platform,
     available: [...available],
     videoCodecs: codecs.VIDEO_CODECS,
     audioCodecs: codecs.AUDIO_CODECS,
@@ -964,6 +1001,8 @@ app.whenReady().then(async () => {
   fs.mkdirSync(settings.get().general.outputDir, { recursive: true });
 
   helper = new Helper(HELPER_EXE);
+  // macOS only: global hotkeys and click effects need the Input Monitoring permission.
+  helper.on('permission', () => toast('warn', 'To use hotkeys, click effects and keystrokes on macOS, allow CapturePro in System Settings → Privacy & Security → Input Monitoring, then restart CapturePro.'));
   helper.on('error', (e) => {
     logError('helper', e);
     toast('error', `The CapturePro helper could not start (${e.message}). Hotkeys and window selection won't work; try reinstalling or allowing it in your antivirus.`);
@@ -1002,6 +1041,7 @@ app.whenReady().then(async () => {
     dialog.showErrorBox('CapturePro', 'FFmpeg was not found. Install FFmpeg (e.g. "winget install Gyan.FFmpeg") and restart CapturePro.');
   } else {
     available = await ffmpeg.detectEncoders(path.join(app.getPath('userData'), 'encoders.json'));
+    filterCaps = ffmpeg.detectFilters(['zmq']);
   }
 
   registerIpc();
@@ -1035,4 +1075,11 @@ app.whenReady().then(async () => {
 });
 
 app.on('second-instance', () => showMain());
+// macOS: Cmd+Q / Dock "Quit" goes through the same confirmation as closing the window while recording.
+app.on('before-quit', (e) => {
+  if (app.isQuitting || !mainWin || mainWin.isDestroyed()) return;
+  e.preventDefault();
+  mainWin.close();
+});
+app.on('activate', () => { if (mainWin && !mainWin.isDestroyed()) showMain(); }); // Dock icon click
 app.on('window-all-closed', () => {});

@@ -40,3 +40,28 @@ This produces `dist/CapturePro-Setup-<version>.exe` (an installer with Start-men
 The builds are not code-signed, so Windows SmartScreen shows "Windows protected your PC" on first run (More info → Run anyway). Signing with a code-signing certificate removes that warning.
 
 FFmpeg is GPL-licensed. Its license ships in `resources/ffmpeg/LICENSE.txt`.
+
+## macOS
+CapturePro also runs on macOS 11 or later, on both Apple-silicon and Intel Macs.
+
+**Download:** every push to `main` builds the Mac version on GitHub (Actions → "Build macOS" → artifact **CapturePro-macOS**). Pushing a tag such as `v0.1.0` also publishes the files as a GitHub Release.
+- `CapturePro-<version>-mac-arm64.dmg` — Apple-silicon Macs (M1–M4)
+- `CapturePro-<version>-mac-x64.dmg` — Intel Macs
+
+**Install:** open the `.dmg` and drag CapturePro into Applications. The app is not notarized by Apple, so the first launch is blocked: open System Settings → Privacy & Security and click **Open Anyway** (on older macOS, right-click the app → Open).
+
+**Permissions** (macOS asks for them on first use; restart CapturePro after granting):
+| Permission | Needed for |
+|---|---|
+| Screen Recording | recording the screen, window titles |
+| Microphone / Camera | microphone, webcam overlay, device recording |
+| Input Monitoring | hotkeys, click effects, keystroke overlay |
+
+**Recording computer sound:** macOS does not let apps capture system audio directly. Install the free [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole) (`brew install blackhole-2ch`). Then, in Audio MIDI Setup, create a **Multi-Output Device** containing your speakers and BlackHole, and select it as the sound output. CapturePro records from BlackHole automatically.
+
+**Differences from Windows:**
+- Window and Game modes record the window's area of the screen, so keep the window in front.
+- "All displays" records the main display.
+- Hardware encoding uses Apple VideoToolbox (H.264 and HEVC).
+
+**Build on a Mac:** `npm ci && npm run dist:mac`. This needs Xcode command-line tools (`xcode-select --install`).

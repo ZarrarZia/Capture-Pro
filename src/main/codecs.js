@@ -10,8 +10,14 @@ const VIDEO_CODECS = {
   mjpeg: { label: 'Motion JPEG', containers: ['avi', 'mkv'], encoders: { cpu: 'mjpeg' } },
 };
 
-const ENCODER_LABELS = { nvenc: 'NVIDIA NVENC', qsv: 'Intel Quick Sync', amf: 'AMD VCE/VCN', cpu: 'CPU' };
-const HW_ORDER = ['nvenc', 'qsv', 'amf'];
+// macOS: Apple's VideoToolbox hardware encoder (added only there, so Windows is unchanged).
+if (process.platform === 'darwin') {
+  VIDEO_CODECS.h264.encoders = { vt: 'h264_videotoolbox', ...VIDEO_CODECS.h264.encoders };
+  VIDEO_CODECS.hevc.encoders = { vt: 'hevc_videotoolbox', ...VIDEO_CODECS.hevc.encoders };
+}
+
+const ENCODER_LABELS = { nvenc: 'NVIDIA NVENC', qsv: 'Intel Quick Sync', amf: 'AMD VCE/VCN', vt: 'Apple VideoToolbox', cpu: 'CPU' };
+const HW_ORDER = process.platform === 'darwin' ? ['vt'] : ['nvenc', 'qsv', 'amf'];
 
 const AUDIO_CODECS = {
   aac: { label: 'AAC', ff: 'aac', containers: ['mp4', 'mkv'] },
@@ -54,7 +60,7 @@ function resolveEncoder(codec, wanted, available) {
 
 // Pixel format each encoder family expects from the filter graph.
 function pixelFormat(ffEncoder) {
-  if (/_(qsv|nvenc|amf)$/.test(ffEncoder)) return 'nv12';
+  if (/_(qsv|nvenc|amf|videotoolbox)$/.test(ffEncoder)) return 'nv12';
   if (ffEncoder === 'mjpeg') return 'yuvj420p';
   return 'yuv420p';
 }
@@ -113,6 +119,15 @@ function videoEncoderArgs(ffEncoder, v) {
       if (cbr) args.push('-rc', 'cbr', '-b:v', br);
       else { const qp = String(lerp(40, 16, q)); args.push('-rc', 'cqp', '-qp_i', qp, '-qp_p', qp); }
       if (ffEncoder === 'hevc_amf') args.push('-tag:v', 'hvc1');
+      break;
+    }
+    case 'h264_videotoolbox':
+    case 'hevc_videotoolbox': {
+      // Bitrate-based: constant-quality mode only exists on Apple-silicon Macs.
+      const kbps = cbr ? (v.bitrate || 8000) : lerp(2000, 24000, q);
+      args.push('-b:v', `${kbps}k`, '-realtime', '1', '-allow_sw', '1');
+      if (cbr) args.push('-maxrate', `${kbps}k`, '-bufsize', `${kbps * 2}k`);
+      if (ffEncoder === 'hevc_videotoolbox') args.push('-tag:v', 'hvc1');
       break;
     }
     case 'mpeg1video':

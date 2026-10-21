@@ -70,7 +70,7 @@ async function start(cfg) {
   let speakerOut = null, micOut = null;
   if (cfg.speaker) {
     try {
-      const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      const s = IS_MAC ? await macSystemAudio() : await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       s.getVideoTracks().forEach((t) => t.stop());
       if (!s.getAudioTracks().length) throw new Error('system sound capture is not available');
       streams.push(s);
@@ -103,6 +103,19 @@ async function start(cfg) {
   applyGains();
   await ctx.resume();
   return warnings;
+}
+
+// macOS has no system-audio loopback for apps like Windows does; the usual approach is a virtual
+// audio device (BlackHole, Loopback, Soundflower) that the system output is routed through.
+const IS_MAC = navigator.userAgent.includes('Mac OS X');
+async function macSystemAudio() {
+  const devs = await navigator.mediaDevices.enumerateDevices();
+  const loop = devs.find((d) => d.kind === 'audioinput' && /blackhole|loopback|soundflower/i.test(d.label));
+  if (!loop) {
+    throw new Error('macOS needs a virtual audio device to record computer sound. Install the free "BlackHole 2ch" '
+      + '(brew install blackhole-2ch), then in Audio MIDI Setup create a Multi-Output Device with your speakers + BlackHole and select it as the sound output');
+  }
+  return navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: loop.deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } });
 }
 
 function silence() { const s = new ConstantSourceNode(ctx, { offset: 0 }); s.start(); return s; }

@@ -74,12 +74,12 @@ class Helper extends EventEmitter {
   }
 }
 
-const MODIFIER_NAMES = new Set(['Ctrl', 'Alt', 'Shift', 'Win']);
+const MODIFIER_NAMES = new Set(['Ctrl', 'Alt', 'Shift', 'Win', 'Cmd']);
 
 // "Ctrl+Shift+F9"; modifier-only presses produce null.
 function accelerator(k) {
   if (MODIFIER_NAMES.has(k.name)) return null;
-  const order = ['Ctrl', 'Alt', 'Shift', 'Win'];
+  const order = ['Ctrl', 'Alt', 'Shift', 'Win', 'Cmd']; // Cmd only occurs on macOS
   return [...order.filter((m) => k.mods.includes(m)), k.name].join('+');
 }
 

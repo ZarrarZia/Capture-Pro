@@ -1,0 +1,60 @@
+name: Build macOS
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # attach the .dmg files to a GitHub Release when a v* tag is pushed
+
+jobs:
+  mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install packages
+        run: npm ci
+
+      - name: Build the native helper (universal arm64 + x86_64)
+        run: npm run build:helper
+
+      - name: Bundle FFmpeg for macOS (arm64 + x64)
+        run: npm run prepare:ffmpeg:mac
+
+      - name: Smoke-test the helper
+        run: |
+          printf '1 ping\n2 monitors\n' | ./native/bin/CaptureProHelper | head -3
+          lipo -info native/bin/CaptureProHelper
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build CapturePro.dmg
+        run: npx electron-builder --mac --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload the macOS builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: CapturePro-macOS
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          if-no-files-found: error
+
+      - name: Publish a GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.dmg
+            dist/*.zip
