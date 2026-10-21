@@ -13,7 +13,7 @@
     "prepare:ffmpeg": "node scripts/prepare-ffmpeg.js",
     "dist": "npm run build:helper && npm run prepare:ffmpeg && electron-builder --win",
     "prepare:ffmpeg:mac": "node scripts/prepare-ffmpeg-mac.js",
-    "dist:mac": "npm run build:helper && npm run prepare:ffmpeg:mac && electron-builder --mac --publish never"
+    "dist:mac": "npm run build:helper && npm run prepare:ffmpeg:mac && electron-builder --mac --publish never && bash scripts/make-dmg.sh arm64 && bash scripts/make-dmg.sh x64"
   },
   "license": "UNLICENSED",
   "devDependencies": {
@@ -88,13 +88,6 @@
       "icon": "assets/icon-mac.png",
       "target": [
         {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        },
-        {
           "target": "zip",
           "arch": [
             "arm64",
@@ -121,10 +114,6 @@
           "to": "ffmpeg"
         }
       ]
-    },
-    "dmg": {
-      "title": "CapturePro ${version}",
-      "artifactName": "CapturePro-${version}-mac-${arch}.${ext}"
     }
   },
   "author": "CapturePro"

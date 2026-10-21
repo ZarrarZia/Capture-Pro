@@ -43,6 +43,7 @@ jobs:
         run: |
           sudo pkill -9 XProtect >/dev/null 2>&1 || true
           npx electron-builder --mac --arm64 --publish never
+          bash scripts/make-dmg.sh arm64
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
@@ -50,6 +51,7 @@ jobs:
         run: |
           sudo pkill -9 XProtect >/dev/null 2>&1 || true
           npx electron-builder --mac --x64 --publish never
+          bash scripts/make-dmg.sh x64
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
