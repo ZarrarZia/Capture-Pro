@@ -30,6 +30,20 @@ const RECT_BORDER = 3;
 
 if (process.env.CAPTUREPRO_USER_DATA) app.setPath('userData', process.env.CAPTUREPRO_USER_DATA); // isolated profiles for tests
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
+
+// Unexpected errors are logged (userData/logs/main.log) and reported as a toast instead of a modal
+// crash dialog; the E2E tests fail if this log has any entries.
+const LOG_FILE = path.join(app.getPath('userData'), 'logs', 'main.log');
+function logError(kind, err) {
+  const line = `[${new Date().toISOString()}] ${kind}: ${err?.stack || err}\n`;
+  try { fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true }); fs.appendFileSync(LOG_FILE, line); } catch { /* disk full */ }
+  console.error(line);
+}
+process.on('uncaughtException', (e) => {
+  logError('uncaughtException', e);
+  try { toast('error', `Something went wrong: ${e.message}\nDetails were saved to ${LOG_FILE}`); } catch { /* UI not ready */ }
+});
+process.on('unhandledRejection', (e) => logError('unhandledRejection', e));
 app.setAppUserModelId('com.capturepro.app');
 
 let settings, helper, tray;
@@ -111,6 +125,8 @@ function createRectWindow() {
   protectFromCapture(rectWin, () => true); // the frame itself is never recorded
   rectWin.loadFile(path.join(RENDERER, 'rect', 'rect.html'));
   rectWin.on('moved', () => saveRectFromWindow());
+  // Alt+F4 on the capture frame hides it (it is reopened from the mode button or Ctrl+Alt+H).
+  rectWin.on('close', (e) => { if (!app.isQuitting) { e.preventDefault(); rectWin.userHidden = true; updateRectVisibility(); } });
   rectWin.webContents.on('did-finish-load', () => sendRectInfo());
 }
 
@@ -481,35 +497,40 @@ function previewRegion() {
 }
 
 function toggleDrawing(on = !drawState.enabled) {
+  if (on === drawState.enabled) return;
   drawState.enabled = on;
   if (on) {
     updateOverlays();
     overlays.setInteractive(drawState.tool !== 'cursor');
     showDrawbar();
   } else {
+    // Tell the overlays drawing is over (they may stay open for click effects while recording).
     overlays.broadcast('overlay:drawCmd', 'clear');
+    overlays.broadcast('overlay:draw', { ...drawState });
     overlays.setInteractive(false);
-    drawbarWin?.hide();
+    if (drawbarWin && !drawbarWin.isDestroyed()) drawbarWin.hide();
     updateOverlays();
   }
   broadcast('draw:state', drawState.enabled);
 }
 
 function showDrawbar() {
-  if (!drawbarWin || drawbarWin.isDestroyed()) {
-    const wa = screen.getPrimaryDisplay().workArea;
-    drawbarWin = new BrowserWindow({
-      width: 860, height: 46, x: Math.round(wa.x + (wa.width - 860) / 2), y: wa.y + 12,
-      frame: false, transparent: true, resizable: false, skipTaskbar: true, alwaysOnTop: true, show: false, hasShadow: false,
-      webPreferences: { preload: PRELOAD },
-    });
-    drawbarWin.setAlwaysOnTop(true, 'screen-saver');
-    protectFromCapture(drawbarWin, () => true);
-    drawbarWin.loadFile(path.join(RENDERER, 'drawbar', 'drawbar.html'));
-    drawbarWin.once('ready-to-show', () => drawbarWin.show());
-  } else {
-    drawbarWin.show();
-  }
+  if (drawbarWin && !drawbarWin.isDestroyed()) { drawbarWin.show(); return; }
+  const wa = screen.getPrimaryDisplay().workArea;
+  const win = drawbarWin = new BrowserWindow({
+    width: 860, height: 46, x: Math.round(wa.x + (wa.width - 860) / 2), y: wa.y + 12,
+    frame: false, transparent: true, resizable: false, skipTaskbar: true, alwaysOnTop: true, show: false, hasShadow: false,
+    minimizable: false, maximizable: false, fullscreenable: false,
+    webPreferences: { preload: PRELOAD },
+  });
+  win.setAlwaysOnTop(true, 'screen-saver');
+  protectFromCapture(win, () => true);
+  // Closing the toolbar (Alt+F4) must not leave an interactive full-screen overlay behind: exit drawing.
+  win.on('close', (e) => { if (!app.isQuitting) { e.preventDefault(); toggleDrawing(false); } });
+  win.on('closed', () => { if (drawbarWin === win) drawbarWin = null; });
+  win.webContents.on('render-process-gone', () => { if (!win.isDestroyed()) win.destroy(); toggleDrawing(false); });
+  win.loadFile(path.join(RENDERER, 'drawbar', 'drawbar.html'));
+  win.once('ready-to-show', () => { if (!win.isDestroyed() && drawState.enabled) win.show(); });
 }
 
 function keystrokeText(k) {
@@ -847,6 +868,7 @@ app.whenReady().then(async () => {
 
   helper = new Helper(path.join(ROOT, 'native', 'bin', 'CaptureProHelper.exe'));
   overlays = new Overlays({ preload: PRELOAD, rendererDir: RENDERER });
+  overlays.on('close-request', () => toggleDrawing(false));
   webcam = new Webcam({ preload: PRELOAD, rendererDir: RENDERER, settings, getRegion: () => previewRegion() });
   device = new Device({ preload: PRELOAD, rendererDir: RENDERER, settings });
 

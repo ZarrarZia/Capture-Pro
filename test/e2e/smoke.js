@@ -95,6 +95,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     console.log('recorded', mp4, `${dur.toFixed(2)}s`, info.streams.map((s) => `${s.codec_type}:${s.codec_name}${s.width ? ` ${s.width}x${s.height}` : ''}`).join(', '));
     assert(dur > 3 && dur < 6, `duration ${dur} should be ~4 s (pause excluded)`);
     assert(!errors.length, `renderer errors:\n${errors.join('\n')}`);
+    const mainLog = path.join(profile, 'logs', 'main.log');
+    assert(!fs.existsSync(mainLog), `main-process errors:
+${fs.existsSync(mainLog) && fs.readFileSync(mainLog, 'utf8')}`);
     console.log('E2E OK — screenshots in', shotDir);
   } finally {
     await app.close().catch(() => {});

@@ -194,6 +194,7 @@ api.onDrawCmd((cmd) => {
 });
 window.addEventListener('keydown', (e) => {
   if (!drawing.enabled || !textInput.hidden) return;
+  if (e.key === 'Escape') { api.drawCmd('exit'); return; } // never trap the user in drawing mode
   if (e.ctrlKey && e.key.toLowerCase() === 'z') api.drawCmd('undo');
   if (e.ctrlKey && e.key.toLowerCase() === 'y') api.drawCmd('redo');
 });

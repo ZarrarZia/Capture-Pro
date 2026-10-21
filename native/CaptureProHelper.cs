@@ -52,6 +52,7 @@ static class Native
     [DllImport("user32.dll")] public static extern short GetKeyState(int vk);
     [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr ctx);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetKeyNameText(int lParam, StringBuilder sb, int size);
+    [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint mapType);
     [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
     [DllImport("kernel32.dll")] public static extern IntPtr GetModuleHandle(string name);
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out RECT r, int size);
@@ -275,7 +276,11 @@ static class Program
             case 0x12: case 0xA4: case 0xA5: return "Alt";
             case 0x5B: case 0x5C: return "Win";
         }
-        int lp = (int)(k.scanCode << 16);
+        // Letters and digits are named from the virtual-key code, so injected input without a scan code
+        // (macro pads, remote desktop, automation tools) produces the same names as a real keyboard.
+        if ((vk >= 0x30 && vk <= 0x39) || (vk >= 0x41 && vk <= 0x5A)) return ((char)vk).ToString();
+        uint scan = k.scanCode != 0 ? k.scanCode : Native.MapVirtualKey((uint)vk, 0 /*MAPVK_VK_TO_VSC*/);
+        int lp = (int)(scan << 16);
         if ((k.flags & 1) != 0) lp |= 1 << 24; // extended key
         var sb = new StringBuilder(64);
         return Native.GetKeyNameText(lp, sb, 64) > 0 ? sb.ToString() : ("VK" + vk);

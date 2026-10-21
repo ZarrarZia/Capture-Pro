@@ -116,6 +116,9 @@ function osInput(script) {
     const info = await ffmpeg.probe(path.join(outDir, webcamMp4));
     console.log('recording:', mp4, '| webcam file:', webcamMp4, `${Number(info.format.duration).toFixed(1)}s`);
     assert(!errors.length, `renderer errors: ${errors.join('\n')}`);
+    const mainLog = path.join(profile, 'logs', 'main.log');
+    assert(!fs.existsSync(mainLog), `main-process errors:
+${fs.existsSync(mainLog) && fs.readFileSync(mainLog, 'utf8')}`);
     console.log('OVERLAYS E2E OK — screenshots in', shotDir);
   } finally {
     await app.close().catch(() => {});

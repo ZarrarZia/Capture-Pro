@@ -65,6 +65,9 @@ async function maxVolumeDb(file) {
     console.log(`microphone-only recording peak: ${db} dB`);
     assert.ok(db > -30, `microphone audio is present in the recording (peak ${db} dB)`);
     assert.match(toasts, /selected microphone was not found/, 'stale mic id falls back to the default microphone with a warning');
+    const mainLog = path.join(profile, 'logs', 'main.log');
+    assert(!fs.existsSync(mainLog), `main-process errors:
+${fs.existsSync(mainLog) && fs.readFileSync(mainLog, 'utf8')}`);
     console.log('MICROPHONE E2E OK');
   } finally {
     await app.close().catch(() => {});

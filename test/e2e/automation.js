@@ -105,6 +105,9 @@ function moveCursor(points) {
     assert(sres.dur > 2.5 && sres.dur < 6, `scheduled duration ${sres.dur}`);
 
     assert(!errors.length, `renderer errors:\n${errors.join('\n')}`);
+    const mainLog = path.join(profile, 'logs', 'main.log');
+    assert(!fs.existsSync(mainLog), `main-process errors:
+${fs.existsSync(mainLog) && fs.readFileSync(mainLog, 'utf8')}`);
     console.log('AUTOMATION E2E OK — screenshots in', shotDir);
   } finally {
     await app.close().catch(() => {});
