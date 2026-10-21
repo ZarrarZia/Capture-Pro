@@ -1,7 +1,7 @@
 // Drawing toolbar (excluded from capture). Tool state is pushed to the overlays through the main process.
 const api = window.capturepro.overlay;
 const TOOLS = [
-  ['cursor', 'Cursor – no drawing (Esc)', 'Escape', '<path d="M5 3l10 6-4.5 1.2L9 15z"/>'],
+  ['cursor', 'Cursor – no drawing (C)', 'c', '<path d="M5 3l10 6-4.5 1.2L9 15z"/>'],
   ['pen', 'Pen (P)', 'p', '<path d="M4 16l1-4 8-8 3 3-8 8z"/><path d="M11 6l3 3"/>'],
   ['highlighter', 'Highlighter (H)', 'h', '<path d="M6 13l6-9 4 3-6 9H6z"/><path d="M4 17h8"/>'],
   ['line', 'Line (L)', 'l', '<path d="M4 16L16 4"/>'],
@@ -38,9 +38,11 @@ document.getElementById('clear').onclick = () => api.drawCmd('clear');
 document.getElementById('close').onclick = () => api.drawCmd('exit');
 
 window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') return api.drawCmd('exit');
   if (e.ctrlKey && e.key.toLowerCase() === 'z') return api.drawCmd('undo');
   if (e.ctrlKey && e.key.toLowerCase() === 'y') return api.drawCmd('redo');
   if (e.key === 'Delete') return api.drawCmd('clear');
+  if (e.ctrlKey || e.altKey || e.metaKey) return; // single-letter shortcuts only
   if (e.key.toLowerCase() === 'w') { state.whiteboard = !state.whiteboard; return push(); }
   const t = TOOLS.find(([, , key]) => key === e.key || key === e.key.toLowerCase());
   if (t) { state.tool = t[0]; push(); }

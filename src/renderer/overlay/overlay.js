@@ -164,17 +164,23 @@ window.addEventListener('pointermove', (e) => {
   if (['pen', 'highlighter', 'eraser'].includes(drawing.cur.tool)) drawing.cur.pts.push(p); else drawing.cur.pts[1] = p;
   redraw();
 });
-window.addEventListener('pointerup', () => { if (drawing.cur) commit(drawing.cur); });
+window.addEventListener('pointerup', () => {
+  if (drawing.cur) commit(drawing.cur);
+  // Windows may raise this overlay above the drawing toolbar while dragging: ask for it back on top.
+  if (drawing.enabled) api.strokeEnd();
+});
 
 function startText(p) {
   textInput.hidden = false;
   textInput.value = '';
   textInput.style.left = `${p.x}px`; textInput.style.top = `${p.y}px`;
   textInput.style.color = drawing.color; textInput.style.font = `600 ${12 + drawing.width * 4}px Segoe UI`;
-  setTimeout(() => textInput.focus(), 0);
+  api.keyboard(true); // overlays don't take focus otherwise (see overlays.js)
+  setTimeout(() => textInput.focus(), 50);
   const done = (keep) => {
     textInput.onkeydown = textInput.onblur = null;
     textInput.hidden = true;
+    api.keyboard(false);
     if (keep && textInput.value.trim()) commit({ tool: 'text', color: drawing.color, width: drawing.width, pts: [p], text: textInput.value });
   };
   textInput.onkeydown = (e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); };

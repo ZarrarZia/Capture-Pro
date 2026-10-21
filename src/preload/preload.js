@@ -43,7 +43,8 @@ contextBridge.exposeInMainWorld('capturepro', {
     onConfig: on('overlay:config'), onMouse: on('overlay:mouse'), onCursor: on('overlay:cursor'), onKey: on('overlay:key'),
     onCountdown: on('overlay:countdown'), onDraw: on('overlay:draw'), onDrawCmd: on('overlay:drawCmd'),
     setDraw: (d) => ipcRenderer.send('overlay:setDraw', d), drawCmd: (c) => ipcRenderer.send('overlay:drawCmd', c),
-    toggleDrawing: invoke('draw:toggle'),
+    toggleDrawing: invoke('draw:toggle'), keyboard: (on) => ipcRenderer.send('overlay:keyboard', on),
+    strokeEnd: () => ipcRenderer.send('overlay:strokeEnd'),
   },
   webcam: {
     onConfig: on('webcam:config'), onRecord: on('webcam:record'),

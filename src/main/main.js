@@ -574,8 +574,17 @@ function toggleDrawing(on = !drawState.enabled) {
   broadcast('draw:state', drawState.enabled);
 }
 
+// The toolbar must stay above the (full-screen, topmost) drawing overlays and keep keyboard focus,
+// otherwise clicks on its buttons would draw on the overlay instead.
+function raiseDrawbar(focus = true) {
+  if (!drawbarWin || drawbarWin.isDestroyed() || !drawState.enabled) return;
+  drawbarWin.setAlwaysOnTop(true, 'screen-saver');
+  drawbarWin.moveTop();
+  if (focus) drawbarWin.focus();
+}
+
 function showDrawbar() {
-  if (drawbarWin && !drawbarWin.isDestroyed()) { drawbarWin.show(); return; }
+  if (drawbarWin && !drawbarWin.isDestroyed()) { drawbarWin.show(); raiseDrawbar(); return; }
   const wa = screen.getPrimaryDisplay().workArea;
   const win = drawbarWin = new BrowserWindow({
     width: 860, height: 46, x: Math.round(wa.x + (wa.width - 860) / 2), y: wa.y + 12,
@@ -590,7 +599,7 @@ function showDrawbar() {
   win.on('closed', () => { if (drawbarWin === win) drawbarWin = null; });
   win.webContents.on('render-process-gone', () => { if (!win.isDestroyed()) win.destroy(); toggleDrawing(false); });
   win.loadFile(path.join(RENDERER, 'drawbar', 'drawbar.html'));
-  win.once('ready-to-show', () => { if (!win.isDestroyed() && drawState.enabled) win.show(); });
+  win.once('ready-to-show', () => { if (!win.isDestroyed() && drawState.enabled) { win.show(); raiseDrawbar(); } });
 }
 
 function keystrokeText(k) {
@@ -907,6 +916,12 @@ function registerIpc() {
     Object.assign(drawState, d, { enabled: drawState.enabled });
     overlays.broadcast('overlay:draw', { ...drawState });
     overlays.setInteractive(drawState.enabled && drawState.tool !== 'cursor');
+    raiseDrawbar(false);
+  });
+  ipcMain.on('overlay:strokeEnd', () => raiseDrawbar(!overlays.typing()));
+  ipcMain.on('overlay:keyboard', (e, on) => {
+    overlays.setKeyboard(BrowserWindow.fromWebContents(e.sender), on);
+    if (!on) raiseDrawbar(); // typing finished: the toolbar gets the keyboard back
   });
   ipcMain.on('overlay:drawCmd', (_e, cmd) => (cmd === 'exit' ? toggleDrawing(false) : overlays.broadcast('overlay:drawCmd', cmd)));
 
@@ -951,6 +966,7 @@ app.whenReady().then(async () => {
   });
   overlays = new Overlays({ preload: PRELOAD, rendererDir: RENDERER });
   overlays.on('close-request', () => toggleDrawing(false));
+  overlays.on('shown', () => { if (drawState.enabled) raiseDrawbar(); });
   webcam = new Webcam({ preload: PRELOAD, rendererDir: RENDERER, settings, getRegion: () => previewRegion() });
   device = new Device({ preload: PRELOAD, rendererDir: RENDERER, settings });
 

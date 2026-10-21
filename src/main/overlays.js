@@ -3,7 +3,11 @@
 //
 // Overlays can disappear underneath us (Alt+F4 while drawing, a crashed renderer, a display being
 // unplugged), so every access goes through _live() and lost windows are recreated on demand.
-// Events: 'close-request' — the user tried to close an overlay (treated as "exit drawing mode").
+// Events: 'close-request' — the user tried to close an overlay (treated as "exit drawing mode");
+//         'shown' — an overlay appeared (it may now cover the drawing toolbar, which must be raised).
+//
+// Overlays never activate (WS_EX_NOACTIVATE): clicking one to draw must not raise it above the
+// drawing toolbar or take keyboard focus from it. Only the text tool focuses an overlay, briefly.
 const { BrowserWindow, screen } = require('electron');
 const { EventEmitter } = require('events');
 const path = require('path');
@@ -52,7 +56,7 @@ class Overlays extends EventEmitter {
   _create(d) {
     const w = new BrowserWindow({
       ...d.bounds, frame: false, transparent: true, resizable: false, movable: false, hasShadow: false,
-      skipTaskbar: true, focusable: this.interactive, show: false, alwaysOnTop: true, fullscreenable: false,
+      skipTaskbar: true, focusable: false, show: false, alwaysOnTop: true, fullscreenable: false,
       minimizable: false, maximizable: false,
       webPreferences: { preload: this.preload, backgroundThrottling: false },
     });
@@ -77,6 +81,7 @@ class Overlays extends EventEmitter {
       for (const [ch, p] of w.queue) if (!STICKY.has(ch)) w.webContents.send(ch, p);
       w.queue = null;
       w.showInactive();
+      this.emit('shown', w);
     });
     w.loadFile(this.file);
     this.wins.set(d.id, w);
@@ -139,10 +144,19 @@ class Overlays extends EventEmitter {
     this.interactive = on;
     for (const [, w] of this._live()) {
       w.setIgnoreMouseEvents(!on);
-      w.setFocusable(on);
-      if (on) w.focus();
+      if (!on && w.textFocus) { w.textFocus = false; w.setFocusable(false); }
     }
     this.broadcast('overlay:interactive', on);
+  }
+
+  typing() { return this._live().some(([, w]) => w.textFocus); }
+
+  // Text tool: the overlay needs the keyboard while the user types, then gives it back.
+  setKeyboard(w, on) {
+    if (!w || w.isDestroyed() || ![...this.wins.values()].includes(w)) return;
+    w.textFocus = on;
+    w.setFocusable(on);
+    if (on) w.focus();
   }
 
   _cursor() {
