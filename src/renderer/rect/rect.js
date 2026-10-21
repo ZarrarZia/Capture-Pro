@@ -75,6 +75,7 @@ $('fit169').onclick = () => fitRatio(16, 9);
 $('fit43').onclick = () => fitRatio(4, 3);
 $('full').onclick = () => api.rect.fullscreen();
 $('shot').onclick = () => api.image.capture();
+$('draw').onclick = () => window.capturepro.overlay.toggleDrawing();
 $('rec').onclick = () => api.rec.toggle();
 $('pause').onclick = () => api.rec.pause();
 $('hide').onclick = () => api.rect.hide();

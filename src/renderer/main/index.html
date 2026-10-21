@@ -22,6 +22,7 @@
       <div id="st-size" class="st-size">0 MB / –</div>
       <div class="meters"><span id="lv-speaker" class="lv"><i></i></span><span id="lv-mic" class="lv"><i></i></span></div>
     </div>
+    <button id="btn-draw" class="tool" title="Drawing mode"><svg viewBox="0 0 20 20"><path d="M4 16l1-4 8-8 3 3-8 8z"/><path d="M11 6l3 3"/></svg></button>
     <button id="btn-mute-spk" class="tool" title="Mute speakers"></button>
     <button id="btn-mute-mic" class="tool" title="Mute microphone"></button>
     <button id="btn-pause" class="tool" title="Pause" disabled><svg viewBox="0 0 20 20"><path d="M7 4.5v11M13 4.5v11"/></svg></button>
@@ -48,5 +49,6 @@
 
   <div id="modal" class="modal" hidden><div class="modal-card"><div class="modal-head"><h2 id="modal-title"></h2><button id="modal-x" class="x" title="Close">×</button></div><div id="modal-body" class="modal-body"></div></div></div>
   <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script src="../shared/tooltip.js"></script>
   <script src="app.js"></script>
 </body></html>

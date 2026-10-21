@@ -82,7 +82,8 @@ const defaults = () => ({
   },
   overlays: {
     webcam: {
-      enabled: false, deviceId: 'default', size: 25, position: 'bottom-right', x: null, y: null,
+      enabled: false, deviceId: 'default', format: '1280x720', saveSeparate: false,
+      size: 25, position: 'bottom-right', x: null, y: null,
       flip: 'none', rotate: 0, shape: 'circle', border: { style: 'solid', width: 4, color: '#ffffff' },
       background: { mode: 'original', image: '', chroma: { color: '#00ff00', similarity: 40, blend: 10 } },
     },

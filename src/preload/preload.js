@@ -37,6 +37,19 @@ contextBridge.exposeInMainWorld('capturepro', {
     pcm: (track, buf) => ipcRenderer.send('audio:pcm', track, buf),
     level: (l) => ipcRenderer.send('audio:level', l),
   },
+  overlay: {
+    onConfig: on('overlay:config'), onMouse: on('overlay:mouse'), onCursor: on('overlay:cursor'), onKey: on('overlay:key'),
+    onCountdown: on('overlay:countdown'), onDraw: on('overlay:draw'), onDrawCmd: on('overlay:drawCmd'),
+    setDraw: (d) => ipcRenderer.send('overlay:setDraw', d), drawCmd: (c) => ipcRenderer.send('overlay:drawCmd', c),
+    toggleDrawing: invoke('draw:toggle'),
+  },
+  webcam: {
+    onConfig: on('webcam:config'), onRecord: on('webcam:record'),
+    cameraAspect: (a) => ipcRenderer.send('webcam:aspect', a),
+    dragStart: () => ipcRenderer.send('webcam:dragStart'), dragMove: (dx, dy) => ipcRenderer.send('webcam:dragMove', dx, dy),
+    dragEnd: () => ipcRenderer.send('webcam:dragEnd'), resize: (dir) => ipcRenderer.send('webcam:resize', dir),
+    chunk: (buf) => ipcRenderer.send('webcam:chunk', buf), recordDone: () => ipcRenderer.send('webcam:recordDone'),
+  },
   on: {
     toast: on('toast'), sound: on('sound'), gameTarget: on('game:target'), mouse: on('input:mouse'),
   },

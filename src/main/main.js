@@ -13,8 +13,10 @@ const { Recorder } = require('./recorder');
 const { buildRecordArgs, buildImageArgs, textFileContent } = require('./capture-args');
 const { Helper } = require('./helper');
 const { outputPath } = require('./naming');
-const { toPhysical, regionSource, displaySource } = require('./targets');
+const { toPhysical, toDip, regionSource, displaySource, sourceRect } = require('./targets');
 const outputs = require('./outputs');
+const { Overlays } = require('./overlays');
+const { Webcam } = require('./webcam');
 
 const ROOT = path.join(__dirname, '..', '..');
 const RENDERER = path.join(ROOT, 'src', 'renderer');
@@ -35,6 +37,11 @@ const rec = { mode: null, targetName: '', file: null, startedAt: 0, lastSoundAt:
 let lastGameTarget = null;
 let hotkeyCapture = null;
 let imageRepeatTimer = null;
+let overlays, webcam, drawbarWin;
+let monitorsCache = [];
+const drawState = { enabled: false, tool: 'pen', color: '#ff3b48', width: 4, whiteboard: false };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const SCREEN_MODES = ['rect', 'full', 'window', 'mouse', 'game'];
 
 // ---------------------------------------------------------------------------- windows
 // WDA_EXCLUDEFROMCAPTURE set on a hidden window is lost when it is shown, so re-apply on every show.
@@ -199,6 +206,7 @@ function onHotkey({ accel }) {
   else if (is('image')) captureImage();
   else if (is('muteSpeaker')) setMute('speaker', !rec.mute.speaker);
   else if (is('muteMic')) setMute('mic', !rec.mute.mic);
+  else if (is('toggleDraw')) toggleDrawing();
   else if (is('toggleRect') && settings.get().mode === 'rect' && rectWin) {
     rectWin.userHidden = rectWin.isVisible();
     updateRectVisibility();
@@ -242,33 +250,36 @@ async function startAudioEngine(plan) {
   });
 }
 
+// Returns { source, name, regionPhys } for the current mode.
 async function resolveTarget(s) {
   const monitors = await helper.monitors();
+  monitorsCache = monitors;
   const method = s.video.captureMethod;
+  const withRect = (t) => ({ ...t, regionPhys: t.regionPhys || sourceRect(monitors, t.source) });
   switch (s.mode) {
     case 'rect': {
       const r = rectWin ? interiorFromWindow(rectWin.getBounds()) : s.target.rect;
-      return { source: regionSource(monitors, toPhysical(r), method), name: 'Screen' };
+      return withRect({ source: regionSource(monitors, toPhysical(r), method), name: 'Screen' });
     }
     case 'full':
-      return { source: displaySource(monitors, s.target.display, method), name: 'Screen' };
+      return withRect({ source: displaySource(monitors, s.target.display, method), name: 'Screen' });
     case 'mouse': {
       const c = screen.dipToScreenPoint(screen.getCursorScreenPoint());
       const sz = s.target.mouseSize;
-      return { source: regionSource(monitors, { x: Math.round(c.x - sz.w / 2), y: Math.round(c.y - sz.h / 2), w: sz.w, h: sz.h }, method), name: 'Screen' };
+      return withRect({ source: regionSource(monitors, { x: Math.round(c.x - sz.w / 2), y: Math.round(c.y - sz.h / 2), w: sz.w, h: sz.h }, method), name: 'Screen' });
     }
     case 'window': {
       const w = s.target.window;
       if (!w) throw new Error('Please select a window to record first (Home → Specific window).');
       const live = (await helper.windows()).find((x) => x.hwnd === w.hwnd);
       if (!live) throw new Error(`The window "${w.title}" is no longer open. Please select it again.`);
-      return { source: { kind: 'wgc-window', hwnd: w.hwnd }, name: live.exe || 'Window' };
+      return { source: { kind: 'wgc-window', hwnd: w.hwnd }, name: live.exe || 'Window', regionPhys: live };
     }
     case 'game': {
       const fg = await helper.foreground().catch(() => null);
       const target = fg && fg.pid !== process.pid && fg.class !== 'Progman' && fg.class !== 'WorkerW' ? fg : lastGameTarget;
       if (!target) throw new Error('No game window detected. Start your game, then press the record hotkey while it is in front.');
-      return { source: { kind: 'wgc-window', hwnd: target.hwnd }, name: target.exe || 'Game' };
+      return { source: { kind: 'wgc-window', hwnd: target.hwnd }, name: target.exe || 'Game', regionPhys: target };
     }
     case 'audio':
       return { source: null, name: 'Audio' };
@@ -281,8 +292,25 @@ async function startRecording() {
   if (recorder.state !== 'idle') return;
   const s = settings.get();
   const audioOnly = s.mode === 'audio';
+  if (rec.counting) return;
   let target;
   try { target = await resolveTarget(s); } catch (e) { toast('error', e.message); return; }
+  rec.regionDip = target.regionPhys ? toDip(target.regionPhys) : null;
+
+  // Countdown on the capture-visible overlay; it disappears before the first frame is captured.
+  if (!audioOnly && s.video.countdown > 0) {
+    rec.counting = true;
+    rec.abortCountdown = false;
+    overlays.open(overlayConfig(false));
+    for (let n = s.video.countdown; n > 0 && !rec.abortCountdown; n--) {
+      overlays.broadcast('overlay:countdown', { n });
+      await sleep(1000);
+    }
+    overlays.broadcast('overlay:countdown', { n: 0 });
+    rec.counting = false;
+    if (rec.abortCountdown) { updateOverlays(); return; }
+    await sleep(150);
+  }
 
   const aplan = audioPlan(s, audioOnly);
   if (audioOnly && !aplan.tracks) { toast('error', 'There is no sound device activated. Please select at least one device.'); return; }
@@ -340,11 +368,14 @@ async function startRecording() {
   if (s.video.soundEffects) playSound('start');
   if (s.video.hideMainWindow && !audioOnly) mainWin.minimize();
   if (s.overlays.mouse.clickEffect || s.overlays.mouse.clickSound) helper.mouseEvents(true);
+  updateOverlays();
+  if (!audioOnly) webcam.startRecording(finalPath);
   refreshTray();
 }
 
 function failStart(e) {
   audioWin?.webContents.send('audio:stop');
+  updateOverlays();
   toast('error', `Failed to start video capture.\n${e.message}`);
 }
 
@@ -352,6 +383,7 @@ async function stopRecording() {
   if (recorder.state === 'idle' || recorder.state === 'stopping') return;
   const s = settings.get();
   helper.mouseEvents(false);
+  const webcamFile = webcam.stopRecording();
   let result = null;
   try {
     result = await recorder.stop();
@@ -360,8 +392,11 @@ async function stopRecording() {
   } finally {
     audioWin?.webContents.send('audio:stop');
     for (const f of rec.tmpFiles) fs.rm(f, () => {});
+    rec.regionDip = null;
+    updateOverlays();
     refreshTray();
   }
+  if (result && await webcamFile) broadcast('outputs:changed', {});
   if (s.video.soundEffects) playSound('stop');
   if (s.video.hideMainWindow && mainWin.isMinimized()) mainWin.restore();
   if (!result) return null;
@@ -375,16 +410,91 @@ async function stopRecording() {
 async function cancelRecording() {
   if (recorder.state === 'idle') return;
   helper.mouseEvents(false);
+  webcam.stopRecording().then((f) => f && fs.rm(f, () => {}));
   await recorder.cancel();
   audioWin?.webContents.send('audio:stop');
+  rec.regionDip = null;
+  updateOverlays();
   refreshTray();
   toast('info', 'Recording canceled.');
 }
 
-function toggleRecording() { return recorder.state === 'idle' ? startRecording() : stopRecording(); }
+function toggleRecording() {
+  if (rec.counting) { rec.abortCountdown = true; return; }
+  return recorder.state === 'idle' ? startRecording() : stopRecording();
+}
 function togglePause() {
-  if (recorder.state === 'recording') return recorder.pause().then(() => broadcastStatus());
-  if (recorder.state === 'paused') return recorder.resume().then(() => broadcastStatus());
+  if (recorder.state === 'recording') { webcam.pause(true); return recorder.pause().then(() => broadcastStatus()); }
+  if (recorder.state === 'paused') { webcam.pause(false); return recorder.resume().then(() => broadcastStatus()); }
+}
+
+// ---------------------------------------------------------------------------- overlays & drawing
+// Effects are only active while recording; drawing works any time.
+function overlayConfig(recording) {
+  const s = settings.get();
+  const screenMode = SCREEN_MODES.includes(rec.mode || s.mode);
+  return {
+    mouse: recording ? s.overlays.mouse : {},
+    keystroke: recording && screenMode && rec.mode !== 'game' ? s.overlays.keystroke : { enabled: false },
+    region: rec.regionDip || previewRegion(),
+  };
+}
+
+function updateOverlays() {
+  const s = settings.get();
+  const recording = recorder.state === 'recording' || recorder.state === 'paused';
+  const m = s.overlays.mouse;
+  const effects = recording && SCREEN_MODES.includes(rec.mode) && (m.clickEffect || m.highlight || s.overlays.keystroke.enabled);
+  if (drawState.enabled || effects || rec.counting) overlays.open(overlayConfig(recording));
+  else overlays.close();
+  if (drawState.enabled) overlays.broadcast('overlay:draw', { ...drawState });
+}
+
+// DIP rect of the area that will be recorded in the current mode (for overlay/webcam placement).
+function previewRegion() {
+  const s = settings.get();
+  if (rec.regionDip) return rec.regionDip;
+  if (s.mode === 'rect') return rectWin ? interiorFromWindow(rectWin.getBounds()) : s.target.rect;
+  if (s.mode === 'full' && s.target.display >= 0 && monitorsCache[s.target.display]) return toDip(monitorsCache[s.target.display]);
+  const b = screen.getPrimaryDisplay().bounds;
+  return { x: b.x, y: b.y, w: b.width, h: b.height };
+}
+
+function toggleDrawing(on = !drawState.enabled) {
+  drawState.enabled = on;
+  if (on) {
+    updateOverlays();
+    overlays.setInteractive(drawState.tool !== 'cursor');
+    showDrawbar();
+  } else {
+    overlays.broadcast('overlay:drawCmd', 'clear');
+    overlays.setInteractive(false);
+    drawbarWin?.hide();
+    updateOverlays();
+  }
+  broadcast('draw:state', drawState.enabled);
+}
+
+function showDrawbar() {
+  if (!drawbarWin || drawbarWin.isDestroyed()) {
+    const wa = screen.getPrimaryDisplay().workArea;
+    drawbarWin = new BrowserWindow({
+      width: 860, height: 46, x: Math.round(wa.x + (wa.width - 860) / 2), y: wa.y + 12,
+      frame: false, transparent: true, resizable: false, skipTaskbar: true, alwaysOnTop: true, show: false, hasShadow: false,
+      webPreferences: { preload: PRELOAD },
+    });
+    drawbarWin.setAlwaysOnTop(true, 'screen-saver');
+    protectFromCapture(drawbarWin, () => true);
+    drawbarWin.loadFile(path.join(RENDERER, 'drawbar', 'drawbar.html'));
+    drawbarWin.once('ready-to-show', () => drawbarWin.show());
+  } else {
+    drawbarWin.show();
+  }
+}
+
+function keystrokeText(k) {
+  if (!k.accel) return null;
+  return k.accel.split('+').map((p) => (p.length === 1 ? p.toUpperCase() : p)).join(' + ');
 }
 
 recorder.on('state', () => { broadcastStatus(); refreshTray(); });
@@ -563,6 +673,24 @@ function registerIpc() {
   ipcMain.on('rect:ignoreMouse', (_e, ignore) => rectWin?.setIgnoreMouseEvents(ignore, { forward: true }));
   ipcMain.handle('rect:hide', () => { rectWin.userHidden = true; updateRectVisibility(); });
 
+  // drawing mode
+  ipcMain.handle('draw:toggle', () => toggleDrawing());
+  ipcMain.on('overlay:setDraw', (_e, d) => {
+    Object.assign(drawState, d, { enabled: drawState.enabled });
+    overlays.broadcast('overlay:draw', { ...drawState });
+    overlays.setInteractive(drawState.enabled && drawState.tool !== 'cursor');
+  });
+  ipcMain.on('overlay:drawCmd', (_e, cmd) => (cmd === 'exit' ? toggleDrawing(false) : overlays.broadcast('overlay:drawCmd', cmd)));
+
+  // webcam overlay
+  ipcMain.on('webcam:aspect', (_e, a) => webcam.setCameraAspect(a));
+  ipcMain.on('webcam:dragStart', () => webcam.dragStart());
+  ipcMain.on('webcam:dragMove', (_e, dx, dy) => webcam.dragMove(dx, dy));
+  ipcMain.on('webcam:dragEnd', () => webcam.dragEnd());
+  ipcMain.on('webcam:resize', (_e, dir) => webcam.resize(dir));
+  ipcMain.on('webcam:chunk', (_e, buf) => webcam.chunk(buf));
+  ipcMain.on('webcam:recordDone', () => webcam.recordDone());
+
   // audio engine
   ipcMain.on('audio:pcm', (_e, track, buf) => recorder.writeAudio(track, Buffer.from(buf)));
   ipcMain.on('audio:level', (_e, levels) => {
@@ -577,10 +705,21 @@ app.whenReady().then(async () => {
   fs.mkdirSync(settings.get().general.outputDir, { recursive: true });
 
   helper = new Helper(path.join(ROOT, 'native', 'bin', 'CaptureProHelper.exe'));
+  overlays = new Overlays({ preload: PRELOAD, rendererDir: RENDERER });
+  webcam = new Webcam({ preload: PRELOAD, rendererDir: RENDERER, settings, getRegion: () => previewRegion() });
+
   helper.on('press', onHotkey);
+  helper.on('press', (k) => {
+    if (recorder.state === 'recording' && settings.get().overlays.keystroke.enabled) overlays.broadcast('overlay:key', { text: keystrokeText(k) });
+  });
   helper.on('key', onPushToTalk);
-  helper.on('mouse', (m) => broadcast('input:mouse', m));
+  helper.on('mouse', (m) => {
+    if (recorder.state !== 'recording') return;
+    overlays.mouse(m);
+    if (m.type === 'down' && settings.get().overlays.mouse.clickSound) playSound(m.btn === 'right' ? 'rclick' : 'click');
+  });
   helper.start();
+  helper.monitors().then((m) => { monitorsCache = m; }).catch(() => {});
 
   // System-audio loopback for the audio engine (getDisplayMedia → WASAPI loopback).
   session.defaultSession.setDisplayMediaRequestHandler((_req, cb) => {
@@ -610,8 +749,10 @@ app.whenReady().then(async () => {
     if (!patch || patch.video) applyMainProtection();
     if (!patch || patch.image) applyImageRepeat();
     if (!patch || patch.target) { if (rectWin && patch?.target?.rect === undefined) sendRectInfo(); }
+    if (!patch || patch.mode || patch.target || patch.overlays?.webcam) webcam.sync();
     broadcast('settings:changed', s);
   });
+  webcam.sync();
 
   if (settings.get().general.recordOnStartup) {
     settings.update({ mode: 'full' });

@@ -1,0 +1,9 @@
+[hidden] { display: none !important; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; font-family: "Segoe UI", system-ui, sans-serif; }
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+body.drawing { cursor: crosshair; }
+.keys { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
+.key { background: rgba(15, 18, 25, .82); color: #fff; border: 1px solid rgba(255,255,255,.18); border-radius: 10px; padding: .25em .7em; font-weight: 600; letter-spacing: .3px; box-shadow: 0 6px 18px rgba(0,0,0,.35); transition: opacity .4s; white-space: nowrap; }
+.key.fade { opacity: 0; }
+.countdown { position: absolute; display: grid; place-items: center; width: 180px; height: 180px; border-radius: 50%; background: rgba(15,18,25,.78); color: #fff; font-size: 96px; font-weight: 700; box-shadow: 0 0 0 6px rgba(255,59,72,.85); transform: translate(-50%, -50%); }
+.text-input { position: absolute; background: transparent; border: 1px dashed rgba(255,255,255,.6); outline: none; font-weight: 600; padding: 0 2px; min-width: 40px; }

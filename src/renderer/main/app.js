@@ -161,6 +161,8 @@ const pages = {
     <div class="section"><h2>Record</h2><div class="grid2"><div>${hotkey('hotkeys.record', 'Record/Stop hotkey')}${hotkey('hotkeys.pause', 'Pause hotkey')}${hotkey('hotkeys.cancel', 'Cancel hotkey')}</div>
       <div>${check('video.showCursor', 'Show mouse cursor')}${check('video.hideMainWindow', 'Hide main window during recording')}${check('video.excludeOwnWindows', 'Exclude CapturePro windows from recording')}
       ${check('video.soundEffects', 'Play sound effects when recording starts/stops')}${check('video.openPlayerAfter', 'Open the video after recording')}</div></div>
+      ${row('Countdown timer', select('video.countdown', [[0, 'Off'], ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => [n, `${n} sec`])], 'data-t="num"'))}
+      ${hotkey('hotkeys.toggleDraw', 'Drawing mode hotkey')}
       ${row('Capture method', select('video.captureMethod', [['wgc', 'Windows Graphics Capture (Windows 10+, recommended)'], ['dda', 'Desktop Duplication (Windows 8+)'], ['gdi', 'GDI (compatibility)']]))}
       ${row('Recording priority', select('video.priority', [['normal', '[Normal] General task priority'], ['high', '[High] Higher than normal priority'], ['highest', '[Highest] Other tasks may be slower']]))}</div>
     <div class="section"><h2><span class="grow">Format</span>${select('', [['', 'Apply a preset…'], ...APP.presets.map((p) => [p.id, p.name]), ...S.presets.map((p, i) => [`user:${i}`, `★ ${p.name}`])], 'id="preset"')}<button class="btn" id="save-preset">Save as preset</button></h2>
@@ -189,7 +191,33 @@ const pages = {
       <div>${row('Left/right margin', num('overlays.logo.marginX', 0, 2000, 'px'))}${row('Top/bottom margin', num('overlays.logo.marginY', 0, 2000, 'px'))}</div></div></div>
     <div class="section"><h2><span class="grow">Text overlay</span><button class="btn" id="text-add">Add</button></h2>
       ${S.overlays.texts.length ? S.overlays.texts.map((t, i) => `<div class="row"><input type="checkbox" data-text-toggle="${i}"${t.enabled === false ? '' : 'checked'}><span class="grow">${esc(t.text)}</span><span class="pill">${esc(t.position)}</span><button class="btn" data-text-edit="${i}">Edit</button><button class="btn danger" data-text-del="${i}">Delete</button></div>`).join('') : '<p class="hint">No text overlays. Text can include {date}, {time} and {datetime}.</p>'}</div>
-    <div class="section"><h2>Mouse</h2><p class="hint">Click effects, highlight and keystroke overlays arrive in the overlays phase. Cursor capture is controlled above.</p></div>`;
+    <div class="section"><h2>Webcam overlay</h2>${check('overlays.webcam.enabled', 'Add webcam overlay to video (screen and game modes)', 'data-rerender')}
+      ${S.overlays.webcam.enabled ? `<div class="grid2"><div>
+        ${row('Webcam', '<select id="cam-device" data-k="overlays.webcam.deviceId" class="grow"><option value="default">(Default camera)</option></select>')}
+        ${row('Format', select('overlays.webcam.format', [['640x480', '640 × 480'], ['1280x720', '1280 × 720'], ['1920x1080', '1920 × 1080']]))}
+        ${row('Shape', select('overlays.webcam.shape', Object.entries(SHAPE_LABELS)))}
+        ${row('Overlay size', range('overlays.webcam.size', 5, 100, 'ws-out'))}
+        ${row('Position', select('overlays.webcam.position', [...POSITIONS, ['custom', 'Custom (drag the overlay)']]))}
+        </div><div>
+        ${row('Flip', select('overlays.webcam.flip', [['none', '(None)'], ['horizontal', 'Horizontal'], ['vertical', 'Vertical']]))}
+        ${row('Rotate', select('overlays.webcam.rotate', [[0, '(None)'], [90, '90°'], [180, '180°'], [270, '270°']], 'data-t="num"'))}
+        ${row('Border', select('overlays.webcam.border.style', [['none', '(None)'], ['solid', 'Solid'], ['faded', 'Faded']]) + num('overlays.webcam.border.width', 1, 40, 'px') + '<input type="color" data-k="overlays.webcam.border.color">')}
+        ${row('Background', select('overlays.webcam.background.mode', [['original', 'Original background'], ['chroma', 'Chroma key (green screen)']], 'data-rerender'))}
+        ${S.overlays.webcam.background.mode === 'chroma' ? row('Key color', '<input type="color" data-k="overlays.webcam.background.chroma.color">') + row('Similarity', range('overlays.webcam.background.chroma.similarity', 1, 100, 'cs-out')) + row('Blend', range('overlays.webcam.background.chroma.blend', 0, 100, 'cb-out')) : ''}
+        </div></div>${check('overlays.webcam.saveSeparate', 'Also save the webcam recording as a separate MP4')}
+        <p class="hint">Drag the webcam overlay to move it; use the mouse wheel over it to resize.</p>` : ''}</div>
+    <div class="section"><h2>Mouse</h2><div class="grid2"><div>
+      ${check('overlays.mouse.clickEffect', 'Add mouse click effect')}
+      ${row('Click effect size', range('overlays.mouse.clickSize', 16, 120, 'cz-out'))}
+      ${row('Left / right color', '<input type="color" data-k="overlays.mouse.leftColor"> <input type="color" data-k="overlays.mouse.rightColor">')}
+      ${check('overlays.mouse.clickSound', 'Play mouse click sounds while recording')}</div><div>
+      ${check('overlays.mouse.highlight', 'Add mouse highlight effect')}
+      ${row('Highlight size', range('overlays.mouse.highlightSize', 20, 200, 'hz-out'))}
+      ${row('Highlight color', '<input type="color" data-k="overlays.mouse.highlightColor">')}
+      ${row('Opacity', range('overlays.mouse.highlightOpacity', 5, 100, 'ho-out'))}</div></div></div>
+    <div class="section"><h2>Keystroke</h2>${check('overlays.keystroke.enabled', 'Add keystrokes to video (screen recording modes)')}
+      <div class="grid2"><div>${row('Size', select('overlays.keystroke.size', [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']]))}</div>
+      <div>${row('Position', select('overlays.keystroke.position', POSITIONS.filter(([p]) => !p.startsWith('middle'))))}</div></div></div>`;
   },
 
   image() {
@@ -231,6 +259,13 @@ const pages = {
       <table class="enc"><tr><th>Codec</th><th>CPU</th><th>NVIDIA NVENC</th><th>Intel Quick Sync</th><th>AMD VCE/VCN</th></tr>${kinds}</table></div>
     <div class="section"><h2>Settings</h2><button class="btn danger" id="reset-all">Reset all settings to defaults</button></div>`;
   },
+};
+
+const SHAPE_LABELS = {
+  original: 'Original', rounded: 'Rounded', square: 'Square', roundedSquare: 'Rounded Square', rect43: 'Rectangle (4:3)',
+  roundedRect43: 'Rounded Rectangle (4:3)', rect34: 'Rectangle (3:4)', roundedRect34: 'Rounded Rectangle (3:4)', circle: 'Circle',
+  ellipse43: 'Ellipse (4:3)', ellipse34: 'Ellipse (3:4)', star: 'Star', star10: '10-Point Star', heart: 'Heart', pentagon: 'Pentagon',
+  hexagon: 'Hexagon', hexagonFlat: 'Hexagon (Flat)', archedTop: 'Arched Top', diamond: 'Diamond', clover: 'Clover', squircle: 'Squircle',
 };
 
 const POSITIONS = [['top-left', 'Top left'], ['top-center', 'Top center'], ['top-right', 'Top right'], ['middle-left', 'Middle left'], ['middle-center', 'Center'], ['middle-right', 'Middle right'], ['bottom-left', 'Bottom left'], ['bottom-center', 'Bottom center'], ['bottom-right', 'Bottom right']];
@@ -347,6 +382,7 @@ function wirePage() {
   $('#out-del', P)?.addEventListener('click', async () => { if (outSel.size && confirm(`Move ${outSel.size} file(s) to the Recycle Bin?`)) await api.outputs.delete([...outSel]); });
   if ($('#out-grid', P)) loadOutputs();
   if ($('#mic-device', P)) fillMicDevices();
+  if ($('#cam-device', P)) fillCamDevices();
   const ptt = $('#ptt-key', P);
   if (ptt) {
     ptt.textContent = S.audio.pushTo.key || '(None)';
@@ -368,6 +404,17 @@ async function fillMicDevices() {
     sel.innerHTML = '<option value="default">(Default input device)</option>' + devs.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || `Microphone ${i + 1}`)}</option>`).join('');
     sel.value = S.audio.mic.deviceId;
     if (sel.value !== S.audio.mic.deviceId) sel.value = 'default';
+  } catch { /* no permission */ }
+}
+
+async function fillCamDevices() {
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+    const sel = $('#cam-device');
+    if (!sel) return;
+    sel.innerHTML = '<option value="default">(Default camera)</option>' + devs.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || `Camera ${i + 1}`)}</option>`).join('');
+    sel.value = S.overlays.webcam.deviceId;
+    if (sel.value !== S.overlays.webcam.deviceId) sel.value = 'default';
   } catch { /* no permission */ }
 }
 
@@ -477,6 +524,8 @@ api.on.sound((name) => {
   if (name === 'start') beep([660, 990]);
   else if (name === 'stop') beep([990, 660]);
   else if (name === 'shutter') shutter();
+  else if (name === 'click') beep([1800], 0.03, 'square', 0);
+  else if (name === 'rclick') beep([1300], 0.03, 'square', 0);
 });
 
 // ------------------------------------------------------------------ status
@@ -518,6 +567,7 @@ function renderMute(m) {
   $('#btn-rec').onclick = () => api.rec.toggle();
   $('#btn-pause').onclick = () => api.rec.pause();
   $('#btn-shot').onclick = () => api.image.capture();
+  $('#btn-draw').onclick = () => api.overlay.toggleDrawing();
   $('#btn-mute-spk').onclick = (e) => api.rec.mute('speaker', !e.currentTarget.dataset.v);
   $('#btn-mute-mic').onclick = (e) => api.rec.mute('mic', !e.currentTarget.dataset.v);
   $('#btn-min').onclick = () => api.win.minimize();
