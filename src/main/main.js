@@ -62,6 +62,15 @@ const SCREEN_MODES = ['rect', 'full', 'window', 'mouse', 'game'];
 
 // ---------------------------------------------------------------------------- windows
 // WDA_EXCLUDEFROMCAPTURE set on a hidden window is lost when it is shown, so re-apply on every show.
+// A crashed renderer is reloaded instead of leaving a dead window (no controls, no audio engine).
+function recoverRenderer(win, name, onReload) {
+  win.webContents.on('render-process-gone', (_e, d) => {
+    if (app.isQuitting || d.reason === 'clean-exit') return;
+    logError('render-process-gone', `${name}: ${d.reason}`);
+    if (!win.isDestroyed()) { win.webContents.reload(); onReload?.(); }
+  });
+}
+
 function protectFromCapture(win, getEnabled) {
   const apply = () => { if (!win.isDestroyed()) win.setContentProtection(!!getEnabled()); };
   apply();
@@ -81,6 +90,7 @@ function createMainWindow() {
   });
   applyMainProtection = protectFromCapture(mainWin, () => settings.get().video.excludeOwnWindows);
   mainWin.loadFile(path.join(RENDERER, 'main', 'index.html'));
+  recoverRenderer(mainWin, 'main');
   mainWin.once('ready-to-show', () => {
     const minimized = process.argv.includes('--minimized') || s.general.startMinimized;
     if (!minimized) mainWin.show();
@@ -104,6 +114,9 @@ function createMainWindow() {
 function createAudioWindow() {
   audioWin = new BrowserWindow({ show: false, webPreferences: { preload: PRELOAD, backgroundThrottling: false } });
   audioWin.loadFile(path.join(RENDERER, 'audio', 'audio.html'));
+  recoverRenderer(audioWin, 'audio', () => {
+    if (recorder.state !== 'idle') toast('warn', 'The audio engine restarted; sound may be missing from this recording. It will work again from the next recording.');
+  });
 }
 
 function rectWindowBounds(r) {
@@ -124,6 +137,7 @@ function createRectWindow() {
   rectWin.setAlwaysOnTop(true, 'screen-saver');
   protectFromCapture(rectWin, () => true); // the frame itself is never recorded
   rectWin.loadFile(path.join(RENDERER, 'rect', 'rect.html'));
+  recoverRenderer(rectWin, 'capture frame');
   rectWin.on('moved', () => saveRectFromWindow());
   // Alt+F4 on the capture frame hides it (it is reopened from the mode button or Ctrl+Alt+H).
   rectWin.on('close', (e) => { if (!app.isQuitting) { e.preventDefault(); rectWin.userHidden = true; updateRectVisibility(); } });
@@ -162,9 +176,16 @@ function broadcast(channel, payload) {
   for (const w of [mainWin, rectWin]) if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
 }
 
+// In-app toast; when the window is hidden, errors also raise a (non-blocking, rate-limited) Windows
+// notification. Never a modal dialog: that would block the main process and stall audio delivery.
+const recentErrors = new Map();
 function toast(type, message) {
   broadcast('toast', { type, message });
-  if (type === 'error' && mainWin && !mainWin.isVisible()) dialog.showErrorBox('CapturePro', message);
+  if (type !== 'error' || (mainWin && !mainWin.isDestroyed() && mainWin.isVisible() && !mainWin.isMinimized())) return;
+  const now = Date.now();
+  if (now - (recentErrors.get(message) || 0) < 30000) return;
+  recentErrors.set(message, now);
+  if (Notification.isSupported()) new Notification({ title: 'CapturePro', body: message, icon: ICON }).show();
 }
 
 function notify(title, body, onClick) {
@@ -320,11 +341,28 @@ async function resolveTarget(s) {
   }
 }
 
-async function startRecording() {
-  if (recorder.state !== 'idle') return;
+// Only one start can be in flight: a second REC press during start-up/countdown is ignored
+// (or aborts the countdown), so two ffmpeg processes can never be launched.
+async function startRecording(opts = {}) {
+  if (rec.starting || stopPromise || recorder.state !== 'idle') return;
+  rec.starting = true;
+  try {
+    await startRecordingInner(opts);
+  } catch (e) {
+    audioWin?.webContents.send('audio:stop');
+    toast('error', `Failed to start recording.\n${e.message}`);
+  } finally {
+    rec.starting = false;
+    rec.counting = false;
+    if (recorder.state === 'idle') { rec.regionDip = null; updateOverlays(); }
+  }
+}
+
+async function startRecordingInner({ scheduleId = null } = {}) {
   const s = settings.get();
   const audioOnly = s.mode === 'audio';
-  if (rec.counting) return;
+  rec.autoPaused = false;
+  rec.scheduleId = scheduleId;
   let target;
   try { target = await resolveTarget(s); } catch (e) { toast('error', e.message); return; }
   rec.regionDip = target.regionPhys ? toDip(target.regionPhys) : null;
@@ -415,9 +453,20 @@ function failStart(e) {
   toast('error', `Failed to start video capture.\n${e.message}`);
 }
 
-async function stopRecording() {
-  if (recorder.state === 'idle' || recorder.state === 'stopping') return;
+// Repeated stop requests (hotkey + tray + "Stop and exit") share the same in-flight save.
+let stopPromise = null;
+function stopRecording() {
+  if (stopPromise) return stopPromise;
+  if (recorder.state === 'idle') return Promise.resolve(null);
+  stopPromise = stopRecordingInner().finally(() => { stopPromise = null; });
+  return stopPromise;
+}
+
+async function stopRecordingInner() {
   const s = settings.get();
+  // A recording stopped by hand ends its schedule window too, so the schedule can't later stop
+  // (and run the after-action on) an unrelated recording.
+  if (scheduleRun && rec.scheduleId === scheduleRun.id) scheduleRun = null;
   helper.mouseEvents(false);
   const webcamFile = webcam.stopRecording();
   let result = null;
@@ -444,7 +493,8 @@ async function stopRecording() {
 }
 
 async function cancelRecording() {
-  if (recorder.state === 'idle') return;
+  // Never cancel while a recording is being saved: that would delete it.
+  if (recorder.state === 'idle' || recorder.state === 'stopping' || stopPromise || rec.starting) return;
   helper.mouseEvents(false);
   webcam.stopRecording().then((f) => f && fs.rm(f, () => {}));
   await recorder.cancel();
@@ -457,11 +507,21 @@ async function cancelRecording() {
 
 function toggleRecording() {
   if (rec.counting) { rec.abortCountdown = true; return; }
+  if (rec.starting) return; // start-up in progress
   return recorder.state === 'idle' ? startRecording() : stopRecording();
 }
-function togglePause() {
-  if (recorder.state === 'recording') { webcam.pause(true); return recorder.pause().then(() => broadcastStatus()); }
-  if (recorder.state === 'paused') { webcam.pause(false); return recorder.resume().then(() => broadcastStatus()); }
+
+// user=false is used by auto-pause; any manual pause/resume clears the auto-pause state.
+async function togglePause(user = true) {
+  if (user) rec.autoPaused = false;
+  try {
+    if (recorder.state === 'recording') { webcam.pause(true); await recorder.pause(); }
+    else if (recorder.state === 'paused') { webcam.pause(false); await recorder.resume(); }
+  } catch (e) {
+    toast('error', `Failed to resume the recording; the part recorded so far is being saved.\n${e.message}`);
+    await stopRecording();
+  }
+  broadcastStatus();
 }
 
 // ---------------------------------------------------------------------------- overlays & drawing
@@ -596,8 +656,14 @@ async function applyScheduleTarget(sc) {
   }
 }
 
+let automationTicking = false;
 setInterval(async () => {
-  if (!settings || !helper) return;
+  if (!settings || !helper || automationTicking) return; // a slow tick must not overlap the next one
+  automationTicking = true;
+  try { await automationTick(); } catch (e) { logError('automation', e); } finally { automationTicking = false; }
+}, 1000);
+
+async function automationTick() {
   const s = settings.get();
   const now = new Date();
 
@@ -611,18 +677,19 @@ setInterval(async () => {
   }
 
   if (scheduleRun && now >= scheduleRun.end) {
-    const after = scheduleRun.after;
+    const { after, id } = scheduleRun;
     scheduleRun = null;
-    if (recorder.state !== 'idle') await autoComplete(after);
+    // Only stop (and run the after-action for) the recording this schedule started.
+    if (recorder.state !== 'idle' && rec.scheduleId === id) await autoComplete(after);
   }
 
-  if (!scheduleRun && recorder.state === 'idle' && !rec.counting) {
+  if (!scheduleRun && recorder.state === 'idle' && !rec.starting && !stopPromise) {
     const d = scheduler.due(s.schedules, now);
     if (d && scheduleFired.get(d.schedule.id) !== d.window.start.getTime()) {
       scheduleFired.set(d.schedule.id, d.window.start.getTime());
       await applyScheduleTarget(d.schedule);
       scheduleRun = { id: d.schedule.id, end: d.window.end, after: d.schedule.after };
-      await startRecording();
+      await startRecording({ scheduleId: d.schedule.id });
       if (recorder.state === 'idle') scheduleRun = null;
     }
   }
@@ -631,10 +698,11 @@ setInterval(async () => {
   const ap = s.video.autoPause;
   if (ap.enabled && SCREEN_MODES.includes(rec.mode) && (recorder.state === 'recording' || recorder.state === 'paused')) {
     const idle = await helper.idleMs().catch(() => 0);
-    if (recorder.state === 'recording' && idle >= ap.idleSec * 1000) { rec.autoPaused = true; await togglePause(); toast('info', 'Recording paused (no activity).'); }
-    else if (recorder.state === 'paused' && rec.autoPaused && idle < 1000) { rec.autoPaused = false; await togglePause(); }
+    if (recorder.busy) return;
+    if (recorder.state === 'recording' && idle >= ap.idleSec * 1000) { rec.autoPaused = true; await togglePause(false); toast('info', 'Recording paused (no activity).'); }
+    else if (recorder.state === 'paused' && rec.autoPaused && idle < 1000) { rec.autoPaused = false; await togglePause(false); }
   }
-}, 1000);
+}
 
 function scheduleList() {
   const now = new Date();
@@ -656,7 +724,16 @@ async function autoComplete(after) {
 }
 
 // ---------------------------------------------------------------------------- image capture
+// One capture at a time (repeat capture can fire while a slow capture is still running).
+let capturingImage = false;
 async function captureImage() {
+  if (capturingImage) return;
+  capturingImage = true;
+  try { await captureImageInner(); } catch (e) { toast('error', `Failed to capture image. Please check your output folder.\n${e.message}`); }
+  finally { capturingImage = false; }
+}
+
+async function captureImageInner() {
   const s = settings.get();
   let target;
   try {
@@ -760,6 +837,7 @@ function registerIpc() {
     return r.canceled ? null : r.filePaths[0];
   });
   ipcMain.handle('hotkey:capture', () => new Promise((resolve) => {
+    if (hotkeyCapture) hotkeyCapture(undefined); // a previous field was still listening: release it
     hotkeyCapture = resolve;
     setTimeout(() => { if (hotkeyCapture === resolve) { hotkeyCapture = null; resolve(undefined); } }, 15000);
   }));
@@ -867,6 +945,10 @@ app.whenReady().then(async () => {
   fs.mkdirSync(settings.get().general.outputDir, { recursive: true });
 
   helper = new Helper(path.join(ROOT, 'native', 'bin', 'CaptureProHelper.exe'));
+  helper.on('error', (e) => {
+    logError('helper', e);
+    toast('error', `The CapturePro helper could not start (${e.message}). Hotkeys and window selection won't work; try reinstalling or allowing it in your antivirus.`);
+  });
   overlays = new Overlays({ preload: PRELOAD, rendererDir: RENDERER });
   overlays.on('close-request', () => toggleDrawing(false));
   webcam = new Webcam({ preload: PRELOAD, rendererDir: RENDERER, settings, getRegion: () => previewRegion() });

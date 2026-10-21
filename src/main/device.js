@@ -51,7 +51,10 @@ class Device {
       webPreferences: { preload: this.preload, backgroundThrottling: false },
     });
     win.loadFile(this.file);
-    win.webContents.once('did-finish-load', () => { win.ready = true; this._sendConfig(); win.show(); });
+    win.webContents.on('render-process-gone', (_e, info) => { if (info.reason !== 'clean-exit' && !win.isDestroyed()) win.webContents.reload(); });
+    // Also runs after a crash-reload, so the device page always gets its configuration back.
+    let first = true;
+    win.webContents.on('did-finish-load', () => { win.ready = true; this._sendConfig(); if (first) win.show(); first = false; });
     const save = () => { if (!win.isDestroyed() && !win.isFullScreen()) this.settings.update({ target: { deviceBounds: win.getBounds() } }); };
     win.on('moved', save);
     win.on('resized', save);
@@ -81,7 +84,16 @@ class Device {
         this.onChunk = (buf) => { written += buf.byteLength; out.write(Buffer.from(buf)); };
         const ack = this._wait('recording', 6000);
         this.win.webContents.send('device:record', { on: true });
-        await ack;
+        try {
+          await ack;
+        } catch (e) {
+          // Don't leave a recorder running in the page, an open file or a stray temp file behind.
+          this.win?.webContents.send('device:record', { on: false });
+          this.onChunk = null;
+          await new Promise((r) => out.end(r));
+          fs.rm(tmp, () => {});
+          throw e;
+        }
       },
       pause: async () => this.win?.webContents.send('device:record', { on: 'pause' }),
       resume: async () => this.win?.webContents.send('device:record', { on: 'resume' }),

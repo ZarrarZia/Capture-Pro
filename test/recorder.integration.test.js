@@ -12,6 +12,81 @@ const { buildRecordArgs } = require('../src/main/capture-args');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hasFfmpeg = !!ffmpeg.locate();
 
+function plan(dir, opts = {}) {
+  return {
+    finalPath: path.join(dir, 'out.mp4'), container: 'mp4', audioTracks: 0,
+    buildArgs: (seg) => buildRecordArgs({
+      source: { kind: 'dda', outputIdx: 0, region: { x: 0, y: 0, w: 320, h: 240 } }, showCursor: false,
+      ffEncoder: opts.encoder || 'libx264', container: 'mp4', video: { fps: 15, fpsMode: 'cfr', optimize: 'speed' }, output: seg,
+    }),
+  };
+}
+const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'capturepro-test-'));
+
+test('double start: second call is rejected and only one recording exists', { skip: !hasFfmpeg, timeout: 60000 }, async () => {
+  const dir = tmpDir();
+  const rec = new Recorder();
+  try {
+    const [a, b] = await Promise.allSettled([rec.start(plan(dir)), rec.start(plan(dir))]);
+    assert.equal(a.status, 'fulfilled');
+    assert.equal(b.status, 'rejected');
+    assert.match(b.reason.message, /Already recording/);
+    await sleep(1000);
+    const res = await rec.stop();
+    assert.ok(fs.existsSync(res.file));
+    assert.equal(rec.state, 'idle');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('pause/resume spam without awaiting still produces one valid file', { skip: !hasFfmpeg, timeout: 90000 }, async () => {
+  const dir = tmpDir();
+  const rec = new Recorder();
+  try {
+    await rec.start(plan(dir));
+    await sleep(800);
+    const ops = [];
+    for (let i = 0; i < 4; i++) { ops.push(rec.pause()); ops.push(rec.resume()); }
+    await Promise.all(ops);
+    assert.equal(rec.state, 'recording');
+    await sleep(800);
+    const res = await rec.stop();
+    const info = await ffmpeg.probe(res.file);
+    assert.ok(Number(info.format.duration) > 1, 'file is playable');
+    assert.ok(!fs.existsSync(path.join(dir, '.capturepro-tmp')), 'no leftover segments');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('cancel pressed while saving does not delete the saved recording', { skip: !hasFfmpeg, timeout: 60000 }, async () => {
+  const dir = tmpDir();
+  const rec = new Recorder();
+  try {
+    await rec.start(plan(dir));
+    await sleep(1200);
+    const stopping = rec.stop();
+    const canceling = rec.cancel();
+    const res = await stopping;
+    await canceling;
+    assert.ok(fs.existsSync(res.file), 'the recording was kept');
+    assert.equal(rec.state, 'idle');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a start that fails cleans up and leaves the recorder usable', { skip: !hasFfmpeg, timeout: 60000 }, async () => {
+  const dir = tmpDir();
+  const rec = new Recorder();
+  const failed = [];
+  rec.on('failed', (m) => failed.push(m));
+  try {
+    await assert.rejects(rec.start(plan(dir, { encoder: 'no_such_encoder_xyz' })));
+    assert.equal(rec.state, 'idle');
+    assert.ok(!fs.existsSync(path.join(dir, '.capturepro-tmp')), 'temp folder removed');
+    assert.deepEqual(failed, [], "start-up failures are reported by start(), not as a 'failed' event");
+    await rec.start(plan(dir));
+    await sleep(800);
+    assert.ok(fs.existsSync((await rec.stop()).file), 'next recording works');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('record → pause → resume → stop produces one MP4 with video and audio', { skip: !hasFfmpeg, timeout: 60000 }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'capturepro-test-'));
   const finalPath = path.join(dir, 'out.mp4');

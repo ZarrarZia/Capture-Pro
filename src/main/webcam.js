@@ -115,11 +115,16 @@ class Webcam {
   // Resolves with the .webcam.mp4 path (or null) after the renderer flushes its last chunk.
   stopRecording() {
     if (!this.recStream) return Promise.resolve(null);
+    // Capture this recording's files now: a new recording may start before the flush completes.
+    const stream = this.recStream, part = this.recFile, target = this.target;
     return new Promise((resolve) => {
+      let done = false;
       const finish = async () => {
+        if (done) return; // the timeout and a late "recordDone" must not both finish it
+        done = true;
         clearTimeout(t);
-        const stream = this.recStream, part = this.recFile, target = this.target;
-        this.recStream = null;
+        if (this.onRecordDone === finish) this.onRecordDone = null;
+        if (this.recStream === stream) this.recStream = null;
         await new Promise((r) => stream.end(r));
         try {
           await ffmpeg.run(['-loglevel', 'error', '-i', part, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-an', '-movflags', '+faststart', target]);

@@ -103,8 +103,10 @@ api.onRecord(({ on }) => {
     if (!stream) return api.ack('recording', { error: 'Please select a video capture device.' });
     const mime = ['video/x-matroska;codecs=avc1,opus', 'video/webm;codecs=h264,opus', 'video/webm;codecs=vp9,opus', 'video/webm'].find((m) => MediaRecorder.isTypeSupported(m));
     recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 25_000_000, audioBitsPerSecond: 192_000 });
-    recorder.ondataavailable = async (e) => { if (e.data.size) api.chunk(await e.data.arrayBuffer()); };
-    recorder.onstop = () => { setTimeout(() => api.ack('recordDone', true), 200); recorder = null; };
+    // Chunks are forwarded strictly in order, and 'done' only after the last one has been sent.
+    let flushed = Promise.resolve();
+    recorder.ondataavailable = (e) => { if (e.data.size) flushed = flushed.then(async () => api.chunk(await e.data.arrayBuffer())); };
+    recorder.onstop = () => { recorder = null; flushed.then(() => api.ack('recordDone', true)); };
     recorder.start(1000);
     api.ack('recording', true);
   } else if (on === false) recorder?.stop();

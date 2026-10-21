@@ -13,14 +13,23 @@ class Helper extends EventEmitter {
   }
 
   start() {
-    this.proc = spawn(this.exePath, [], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
-    this.proc.on('error', (e) => this.emit('error', e));
-    this.proc.on('exit', () => {
+    this.restarts = this.restarts || 0;
+    const proc = this.proc = spawn(this.exePath, [], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+    this.startedAt = Date.now();
+    // 'error' is re-emitted only when someone listens, so a missing/blocked exe can't crash the app.
+    proc.on('error', (e) => { if (this.listenerCount('error')) this.emit('error', e); });
+    proc.stdin.on('error', () => {}); // writes racing a crash (EPIPE) are handled by 'exit'
+    proc.on('exit', () => {
       for (const { reject } of this.pending.values()) reject(new Error('helper exited'));
       this.pending.clear();
-      if (!this.stopping) setTimeout(() => this.start(), 1000); // self-heal
+      if (this.stopping) return;
+      // Self-heal with back-off: 1 s, 2 s, 4 s … up to 30 s; reset after a minute of healthy running.
+      if (Date.now() - this.startedAt > 60000) this.restarts = 0;
+      const delay = Math.min(30000, 1000 * 2 ** this.restarts++);
+      setTimeout(() => this.start(), delay);
     });
-    readline.createInterface({ input: this.proc.stdout }).on('line', (line) => this._onLine(line));
+    readline.createInterface({ input: proc.stdout }).on('line', (line) => this._onLine(line));
+    this.down.clear();
     this.request('hook on').catch(() => {});
   }
 
@@ -31,10 +40,10 @@ class Helper extends EventEmitter {
 
   request(cmd, timeoutMs = 5000) {
     return new Promise((resolve, reject) => {
-      if (!this.proc || this.proc.exitCode !== null) return reject(new Error('helper not running'));
+      if (!this.proc || this.proc.exitCode !== null || !this.proc.stdin.writable) return reject(new Error('helper not running'));
       const id = String(++this.seq);
       const t = setTimeout(() => { this.pending.delete(id); reject(new Error(`helper timeout: ${cmd}`)); }, timeoutMs);
-      this.pending.set(id, { resolve: (v) => { clearTimeout(t); resolve(v); }, reject });
+      this.pending.set(id, { resolve: (v) => { clearTimeout(t); resolve(v); }, reject: (e) => { clearTimeout(t); reject(e); } });
       this.proc.stdin.write(`${id} ${cmd}\n`);
     });
   }

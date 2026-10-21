@@ -111,8 +111,10 @@ api.onRecord(({ on }) => {
   if (on === true && stream && !recorder) {
     const mime = ['video/webm;codecs=h264', 'video/webm;codecs=vp9', 'video/webm'].find((m) => MediaRecorder.isTypeSupported(m));
     recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 });
-    recorder.ondataavailable = async (e) => { if (e.data.size) api.chunk(await e.data.arrayBuffer()); };
-    recorder.onstop = () => { api.recordDone(); recorder = null; };
+    // Chunks are forwarded strictly in order, and 'done' only after the last one has been sent.
+    let flushed = Promise.resolve();
+    recorder.ondataavailable = (e) => { if (e.data.size) flushed = flushed.then(async () => api.chunk(await e.data.arrayBuffer())); };
+    recorder.onstop = () => { recorder = null; flushed.then(() => api.recordDone()); };
     recorder.start(1000);
   } else if (on === false && recorder) {
     recorder.stop();
