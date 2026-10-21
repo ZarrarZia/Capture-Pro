@@ -64,6 +64,7 @@ static class Program
     static Thread hookThread;
     static uint hookThreadId;
     static Native.HookProc mouseProc, keyProc; // keep delegates alive
+    static volatile bool mouseEvents;
 
     static void Main()
     {
@@ -95,6 +96,10 @@ static class Program
                         break;
                     case "hook":
                         if (parts.Length > 2 && parts[2] == "on") StartHooks(); else StopHooks();
+                        Reply(id, "\"ok\":true");
+                        break;
+                    case "mouse": // mouse button events are only forwarded while enabled
+                        mouseEvents = parts.Length > 2 && parts[2] == "on";
                         Reply(id, "\"ok\":true");
                         break;
                     default: Reply(id, "\"error\":\"unknown command\""); break;
@@ -212,7 +217,7 @@ static class Program
 
     static IntPtr MouseHook(int code, IntPtr wParam, IntPtr lParam)
     {
-        if (code >= 0)
+        if (code >= 0 && mouseEvents)
         {
             int m = wParam.ToInt32();
             string type = null, btn = null;

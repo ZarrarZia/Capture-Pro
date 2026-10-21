@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:; media-src 'self' file:">
+<link rel="stylesheet" href="styles.css">
+<title>CapturePro</title></head>
+<body>
+  <header class="titlebar">
+    <span class="brand"><span class="brand-mark"></span>CapturePro</span>
+    <span id="title-status" class="title-status"></span>
+    <div class="win-btns">
+      <button id="btn-tray" title="Minimize to tray"><svg viewBox="0 0 16 16"><path d="M4 11h8"/><path d="M8 3v6M5.5 6.5L8 9l2.5-2.5"/></svg></button>
+      <button id="btn-min" title="Minimize"><svg viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg></button>
+      <button id="btn-close" class="close" title="Close"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    </div>
+  </header>
+
+  <section class="toolbar">
+    <div id="modes" class="modes" role="tablist" aria-label="Recording mode"></div>
+    <div class="spacer"></div>
+    <div class="status">
+      <div id="st-time" class="st-time">00:00:00</div>
+      <div id="st-size" class="st-size">0 MB / –</div>
+      <div class="meters"><span id="lv-speaker" class="lv"><i></i></span><span id="lv-mic" class="lv"><i></i></span></div>
+    </div>
+    <button id="btn-mute-spk" class="tool" title="Mute speakers"></button>
+    <button id="btn-mute-mic" class="tool" title="Mute microphone"></button>
+    <button id="btn-pause" class="tool" title="Pause" disabled><svg viewBox="0 0 20 20"><path d="M7 4.5v11M13 4.5v11"/></svg></button>
+    <button id="btn-shot" class="tool" title="Capture image"><svg viewBox="0 0 20 20"><rect x="2.5" y="5.5" width="15" height="11" rx="2"/><circle cx="10" cy="11" r="3"/><path d="M7 5.5l1.2-2h3.6l1.2 2"/></svg></button>
+    <button id="btn-rec" class="rec" title="Record / Stop"><span class="dot"></span><span id="rec-label">REC</span></button>
+  </section>
+
+  <div class="body">
+    <nav id="nav" class="nav">
+      <button data-page="home" class="active"><svg viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z"/></svg>Home</button>
+      <button data-page="general"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2.2M10 15.3v2.2M2.5 10h2.2M15.3 10h2.2M4.7 4.7l1.6 1.6M13.7 13.7l1.6 1.6M4.7 15.3l1.6-1.6M13.7 6.3l1.6-1.6"/></svg>General</button>
+      <button data-page="video"><svg viewBox="0 0 20 20"><rect x="2.5" y="5" width="11" height="10" rx="2"/><path d="M13.5 9l4-2.5v7l-4-2.5"/></svg>Video</button>
+      <button data-page="image"><svg viewBox="0 0 20 20"><rect x="2.5" y="3.5" width="15" height="13" rx="2"/><circle cx="7.5" cy="8" r="1.5"/><path d="M3 15l4.5-4.5 3 3 2.5-2.5 4.5 4.5"/></svg>Image</button>
+      <button data-page="audio"><svg viewBox="0 0 20 20"><rect x="7" y="2.5" width="6" height="10" rx="3"/><path d="M4.5 9.5a5.5 5.5 0 0011 0M10 15v2.5"/></svg>Audio</button>
+      <div class="nav-sep">Output</div>
+      <button data-page="videos"><svg viewBox="0 0 20 20"><rect x="2.5" y="4" width="15" height="12" rx="2"/><path d="M8.5 7.5v5l4-2.5z"/></svg>Videos</button>
+      <button data-page="images"><svg viewBox="0 0 20 20"><rect x="2.5" y="4" width="15" height="12" rx="2"/><path d="M3 14l4-4 3 3 2-2 5 5"/></svg>Images</button>
+      <button data-page="audios"><svg viewBox="0 0 20 20"><path d="M7.5 15V5l9-2v10"/><circle cx="5.5" cy="15" r="2"/><circle cx="14.5" cy="13" r="2"/></svg>Audios</button>
+      <div class="nav-fill"></div>
+      <button data-page="about"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><path d="M10 9v5M10 6.2v.1"/></svg>About</button>
+    </nav>
+    <main id="page" class="page"></main>
+  </div>
+
+  <div id="modal" class="modal" hidden><div class="modal-card"><div class="modal-head"><h2 id="modal-title"></h2><button id="modal-x" class="x" title="Close">×</button></div><div id="modal-body" class="modal-body"></div></div></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body></html>

@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+<link rel="stylesheet" href="rect.css">
+<title>CapturePro capture area</title></head>
+<body>
+  <div id="frame">
+    <div id="bar">
+      <span class="logo" aria-hidden="true"></span>
+      <button id="size" class="nodrag size" title="Size presets">1280 × 720</button>
+      <span id="time" class="time"></span>
+      <div class="spacer"></div>
+      <button id="fit169" class="nodrag icon" title="Fit to 16:9">16:9</button>
+      <button id="fit43" class="nodrag icon" title="Fit to 4:3">4:3</button>
+      <button id="full" class="nodrag icon" title="Fullscreen"><svg viewBox="0 0 16 16"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></button>
+      <button id="shot" class="nodrag icon" title="Capture image"><svg viewBox="0 0 16 16"><rect x="2" y="4" width="12" height="9" rx="1.5"/><circle cx="8" cy="8.5" r="2.4"/><path d="M6 4l1-1.6h2L10 4"/></svg></button>
+      <button id="pause" class="nodrag icon" title="Pause" disabled><svg viewBox="0 0 16 16"><path d="M5.5 3.5v9M10.5 3.5v9"/></svg></button>
+      <button id="rec" class="nodrag rec" title="Record / Stop"><span class="dot"></span><span class="label">REC</span></button>
+      <button id="hide" class="nodrag icon" title="Hide frame"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    </div>
+    <div id="hole" class="hole"></div>
+    <div class="h n" data-e="n"></div><div class="h s" data-e="s"></div><div class="h e" data-e="e"></div><div class="h w" data-e="w"></div>
+    <div class="h ne" data-e="ne"></div><div class="h nw" data-e="nw"></div><div class="h se" data-e="se"></div><div class="h sw" data-e="sw"></div>
+  </div>
+  <div id="menu" class="menu" hidden></div>
+  <script src="rect.js"></script>
+</body></html>

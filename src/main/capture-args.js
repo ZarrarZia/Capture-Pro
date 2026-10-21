@@ -130,6 +130,36 @@ function buildRecordArgs(job) {
   return args;
 }
 
+// Single-frame screenshot: job = { source, showCursor, format ('png'|'jpg'|'bmp'), jpgQuality, logo?, output }
+function buildImageArgs(job) {
+  const inputs = [];
+  const chains = [];
+  let cur;
+  const sf = sourceFilter(job.source, 30, job.showCursor, false);
+  if (sf) { chains.push(`${sf}[src]`); cur = '[src]'; } else {
+    const r = job.source.region;
+    inputs.push(['-f', 'gdigrab', '-draw_mouse', job.showCursor ? '1' : '0', '-offset_x', String(r.x), '-offset_y', String(r.y), '-video_size', `${r.w}x${r.h}`, '-i', 'desktop']);
+    cur = '[0:v]';
+  }
+  const logo = job.logo;
+  if (logo && logo.image) {
+    const li = inputs.length;
+    inputs.push(['-i', logo.image]);
+    const { x, y } = positionExpr(logo.position, logo.marginX ?? 16, logo.marginY ?? 16, 'w', 'h');
+    chains.push(`[${li}:v]format=rgba,colorchannelmixer=aa=${Math.max(0, Math.min(100, logo.opacity ?? 100)) / 100}[logo]`);
+    chains.push(`${cur}[logo]overlay=x=${x}:y=${y}[ov]`);
+    cur = '[ov]';
+  }
+  const pix = { jpg: 'yuvj444p', bmp: 'bgr24', png: 'rgb24' }[job.format] || 'rgb24';
+  chains.push(`${cur}format=${pix}[img]`);
+  const args = ['-hide_banner', '-loglevel', 'error', '-y'];
+  for (const i of inputs) args.push(...i);
+  args.push('-filter_complex', chains.join(';'), '-map', '[img]', '-frames:v', '1');
+  if (job.format === 'jpg') args.push('-q:v', String(Math.round(31 - 29 * Math.max(20, Math.min(100, job.jpgQuality || 90)) / 100)));
+  args.push('-update', '1', job.output);
+  return args;
+}
+
 // Writes drawtext's textfile content, translating {date}/{time}/{datetime} macros.
 function textFileContent(text) {
   return String(text)
@@ -139,4 +169,4 @@ function textFileContent(text) {
     .replace(/\{time\}/g, '%{localtime:%H\\:%M\\:%S}');
 }
 
-module.exports = { buildRecordArgs, textFileContent, positionExpr, FONT_FILES };
+module.exports = { buildRecordArgs, buildImageArgs, textFileContent, positionExpr, FONT_FILES };
