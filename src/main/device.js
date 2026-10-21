@@ -48,7 +48,7 @@ class Device {
     const b = this.settings.get().target.deviceBounds || { width: 800, height: 494, x: Math.round(wa.x + (wa.width - 800) / 2), y: Math.round(wa.y + (wa.height - 494) / 2) };
     const win = this.win = new BrowserWindow({
       ...b, minWidth: 360, minHeight: 240, frame: false, show: false, backgroundColor: '#0a0c11', title: 'CapturePro – Device',
-      icon: path.join(__dirname, '..', '..', 'assets', 'icon.png'),
+      icon: path.join(__dirname, '..', '..', 'assets', 'icon.png').replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep),
       webPreferences: { preload: this.preload, backgroundThrottling: false },
     });
     win.loadFile(this.file);

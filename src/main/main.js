@@ -24,7 +24,11 @@ const { Device } = require('./device');
 const ROOT = path.join(__dirname, '..', '..');
 const RENDERER = path.join(ROOT, 'src', 'renderer');
 const PRELOAD = path.join(ROOT, 'src', 'preload', 'preload.js');
-const ICON = path.join(ROOT, 'assets', 'icon.png');
+// Packaged builds: assets are unpacked next to app.asar (Windows needs real files for tray and
+// notification icons) and the native helper ships in resources/, since an .exe can't run from an asar.
+const ASSETS = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets') : path.join(ROOT, 'assets');
+const HELPER_EXE = app.isPackaged ? path.join(process.resourcesPath, 'native', 'CaptureProHelper.exe') : path.join(ROOT, 'native', 'bin', 'CaptureProHelper.exe');
+const ICON = path.join(ASSETS, 'icon.png');
 const RECT_BAR = 34; // DIP height of the capture frame's control bar
 const RECT_BORDER = 3;
 
@@ -199,7 +203,7 @@ function playSound(name) { if (mainWin && !mainWin.isDestroyed()) mainWin.webCon
 
 // ---------------------------------------------------------------------------- tray
 function createTray() {
-  tray = new Tray(nativeImage.createFromPath(path.join(ROOT, 'assets', 'tray.png')));
+  tray = new Tray(nativeImage.createFromPath(path.join(ASSETS, 'tray.png')));
   tray.setToolTip('CapturePro');
   tray.on('click', () => showMain());
   refreshTray();
@@ -208,7 +212,7 @@ function createTray() {
 function refreshTray() {
   if (!tray) return;
   const active = recorder.state !== 'idle';
-  tray.setImage(nativeImage.createFromPath(path.join(ROOT, 'assets', active ? 'tray-rec.png' : 'tray.png')));
+  tray.setImage(nativeImage.createFromPath(path.join(ASSETS, active ? 'tray-rec.png' : 'tray.png')));
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: active ? 'Stop recording' : 'Start recording', click: () => toggleRecording() },
     { label: recorder.state === 'paused' ? 'Resume' : 'Pause', enabled: active, click: () => togglePause() },
@@ -959,7 +963,7 @@ app.whenReady().then(async () => {
   settings = new Settings(path.join(app.getPath('userData'), 'settings.json'));
   fs.mkdirSync(settings.get().general.outputDir, { recursive: true });
 
-  helper = new Helper(path.join(ROOT, 'native', 'bin', 'CaptureProHelper.exe'));
+  helper = new Helper(HELPER_EXE);
   helper.on('error', (e) => {
     logError('helper', e);
     toast('error', `The CapturePro helper could not start (${e.message}). Hotkeys and window selection won't work; try reinstalling or allowing it in your antivirus.`);

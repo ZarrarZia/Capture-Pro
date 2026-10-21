@@ -9,18 +9,77 @@
     "build:helper": "node scripts/build-helper.js",
     "start": "npm run build:helper && node scripts/start.js",
     "test": "node --test \"test/*.test.js\"",
-    "test:e2e": "node test/e2e/drawing.js && node test/e2e/smoke.js && node test/e2e/overlays.js && node test/e2e/automation.js && node test/e2e/microphone.js && node test/e2e/stress.js"
+    "test:e2e": "node test/e2e/drawing.js && node test/e2e/smoke.js && node test/e2e/overlays.js && node test/e2e/automation.js && node test/e2e/microphone.js && node test/e2e/stress.js",
+    "prepare:ffmpeg": "node scripts/prepare-ffmpeg.js",
+    "dist": "npm run build:helper && npm run prepare:ffmpeg && electron-builder --win"
   },
   "license": "UNLICENSED",
   "devDependencies": {
     "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
     "playwright-core": "^1.49.1"
   },
   "build": {
     "appId": "com.capturepro.app",
     "productName": "CapturePro",
+    "copyright": "Copyright © 2026 CapturePro",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "package.json",
+      "src/**/*",
+      "assets/**/*",
+      "!**/*.md"
+    ],
+    "asarUnpack": [
+      "assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "native/bin/CaptureProHelper.exe",
+        "to": "native/CaptureProHelper.exe"
+      },
+      {
+        "from": "vendor/ffmpeg",
+        "to": "ffmpeg"
+      }
+    ],
     "win": {
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "executableName": "CapturePro"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CapturePro",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "uninstallDisplayName": "CapturePro",
+      "artifactName": "CapturePro-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "CapturePro-Portable-${version}.${ext}"
     }
-  }
+  },
+  "author": "CapturePro"
 }

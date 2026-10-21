@@ -30,3 +30,13 @@ The E2E tests record your screen for a few seconds and inject harmless input: a 
 | Capture image | F11 |
 | Drawing mode | Ctrl+Alt+D |
 | Show/hide capture frame | Ctrl+Alt+H |
+
+## Build the Windows installer
+```
+npm run dist
+```
+This produces `dist/CapturePro-Setup-<version>.exe` (an installer with Start-menu and desktop shortcuts and a choice of install folder) and `dist/CapturePro-Portable-<version>.exe` (runs without installing). Both bundle FFmpeg and the native helper, so the target PC needs nothing else installed.
+
+The builds are not code-signed, so Windows SmartScreen shows "Windows protected your PC" on first run (More info → Run anyway). Signing with a code-signing certificate removes that warning.
+
+FFmpeg is GPL-licensed. Its license ships in `resources/ffmpeg/LICENSE.txt`.
