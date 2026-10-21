@@ -9,7 +9,7 @@
     "build:helper": "node scripts/build-helper.js",
     "start": "npm run build:helper && node scripts/start.js",
     "test": "node --test \"test/*.test.js\"",
-    "test:e2e": "node test/e2e/smoke.js && node test/e2e/overlays.js && node test/e2e/automation.js"
+    "test:e2e": "node test/e2e/smoke.js && node test/e2e/overlays.js && node test/e2e/automation.js && node test/e2e/microphone.js"
   },
   "license": "UNLICENSED",
   "devDependencies": {

@@ -598,7 +598,7 @@ function toast(type, message) {
   el.className = `toast ${type}`;
   el.textContent = message;
   $('#toasts').append(el);
-  setTimeout(() => el.remove(), type === 'error' ? 8000 : 4000);
+  setTimeout(() => el.remove(), type === 'info' ? 4000 : 8000);
 }
 
 let actx = null;
@@ -650,13 +650,31 @@ function renderStatus(st) {
   if (st.mute) renderMute(st.mute);
 }
 
-function renderMute(m) {
-  $('#btn-mute-spk').innerHTML = m.speaker ? I.spkOff : I.spk;
-  $('#btn-mute-mic').innerHTML = m.mic ? I.micOff : I.mic;
-  $('#btn-mute-spk').classList.toggle('muted', !!m.speaker);
-  $('#btn-mute-mic').classList.toggle('muted', !!m.mic);
-  $('#btn-mute-spk').dataset.v = m.speaker ? '1' : '';
-  $('#btn-mute-mic').dataset.v = m.mic ? '1' : '';
+// Toolbar sound buttons show whether each source is recorded at all, not just muted.
+// Clicking a source that is off turns it on (like "Add Microphone"); otherwise it toggles mute.
+let muteState = { speaker: false, mic: false };
+function renderMute(m = muteState) {
+  muteState = m;
+  for (const [key, id, on, off, name] of [['speaker', '#btn-mute-spk', I.spk, I.spkOff, 'Computer sound'], ['mic', '#btn-mute-mic', I.mic, I.micOff, 'Microphone']]) {
+    const btn = $(id);
+    const enabled = S ? S.audio.enabled !== false && S.audio[key].enabled : true;
+    const muted = !!m[key];
+    btn.innerHTML = enabled && !muted ? on : off;
+    btn.classList.toggle('muted', muted);
+    btn.classList.toggle('disabled-src', !enabled);
+    btn.dataset.tip = !enabled ? `${name} is OFF – click to record it` : muted ? `${name} muted – click to unmute` : `${name} is recorded – click to mute`;
+  }
+}
+
+async function soundButton(key) {
+  if (!S.audio[key].enabled || S.audio.enabled === false) {
+    S = await api.settings.update({ audio: { enabled: true, [key]: { enabled: true } } });
+    toast('info', `${key === 'mic' ? 'Microphone' : 'Computer sound'} will be recorded.${status.state !== 'idle' ? ' It takes effect from the next recording.' : ''}`);
+    renderMute();
+    if (page === 'audio') render();
+    return;
+  }
+  api.rec.mute(key, !muteState[key]);
 }
 
 // ------------------------------------------------------------------ boot
@@ -671,8 +689,8 @@ function renderMute(m) {
   $('#btn-pause').onclick = () => api.rec.pause();
   $('#btn-shot').onclick = () => api.image.capture();
   $('#btn-draw').onclick = () => api.overlay.toggleDrawing();
-  $('#btn-mute-spk').onclick = (e) => api.rec.mute('speaker', !e.currentTarget.dataset.v);
-  $('#btn-mute-mic').onclick = (e) => api.rec.mute('mic', !e.currentTarget.dataset.v);
+  $('#btn-mute-spk').onclick = () => soundButton('speaker');
+  $('#btn-mute-mic').onclick = () => soundButton('mic');
   $('#btn-min').onclick = () => api.win.minimize();
   $('#btn-close').onclick = () => api.win.close();
   $('#btn-tray').onclick = () => api.win.tray();
@@ -684,7 +702,7 @@ function renderMute(m) {
   api.rec.onMute(renderMute);
   api.on.toast(({ type, message }) => toast(type, message));
   api.outputs.onChanged(() => loadOutputs());
-  api.settings.onChange((s) => { const modeChanged = s.mode !== S.mode; S = s; if (modeChanged) render(); });
+  api.settings.onChange((s) => { const modeChanged = s.mode !== S.mode; S = s; renderMute(); if (modeChanged) render(); });
   timerState = await api.timer.get();
   api.timer.onStatus((t) => { timerState = t; if (page === 'general') render(); });
   api.on.gameTarget((t) => { gameTarget = t; const el = $('#game-target'); if (el) el.innerHTML = gameTargetHtml(); });

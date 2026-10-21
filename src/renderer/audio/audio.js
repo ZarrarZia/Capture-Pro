@@ -62,55 +62,80 @@ async function start(cfg) {
   state = { ...state, cfg, mute: cfg.mute || state.mute, micOpen: cfg.micOpen !== false };
   ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
   await ctx.audioWorklet.addModule('pcm-worklet.js');
+  nodes = {};
 
-  const outs = [];
+  // Each source is optional: if one fails (mic busy, unplugged, blocked by Windows privacy settings)
+  // the other is still recorded and the failure is reported as a warning.
+  const warnings = [];
+  let speakerOut = null, micOut = null;
   if (cfg.speaker) {
-    const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-    s.getVideoTracks().forEach((t) => t.stop());
-    if (!s.getAudioTracks().length) throw new Error('System sound capture is not available.');
-    streams.push(s);
-    nodes.speakerGain = new GainNode(ctx);
-    const out = chain(new MediaStreamAudioSourceNode(ctx, { mediaStream: s }), nodes.speakerGain, cfg.speaker.mono);
-    nodes.speakerMeter = analyser(nodes.speakerGain);
-    outs.push(out);
+    try {
+      const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      s.getVideoTracks().forEach((t) => t.stop());
+      if (!s.getAudioTracks().length) throw new Error('system sound capture is not available');
+      streams.push(s);
+      nodes.speakerGain = new GainNode(ctx);
+      speakerOut = chain(new MediaStreamAudioSourceNode(ctx, { mediaStream: s }), nodes.speakerGain, cfg.speaker.mono);
+      nodes.speakerMeter = analyser(nodes.speakerGain);
+    } catch (e) { warnings.push(`Computer sound is not being recorded (${e.message || e.name}).`); }
   }
   if (cfg.mic) {
-    const ns = cfg.mic.noiseSuppression && cfg.mic.noiseSuppression !== 'off';
+    try {
+      micOut = await openMic(cfg.mic);
+    } catch (e) {
+      // A saved device that no longer exists: fall back to the default microphone.
+      if (cfg.mic.deviceId && cfg.mic.deviceId !== 'default') {
+        try { micOut = await openMic({ ...cfg.mic, deviceId: 'default' }); warnings.push('The selected microphone was not found; using the default microphone.'); } catch { /* reported below */ }
+      }
+      if (!micOut) warnings.push(`Your microphone is not being recorded (${e.message || e.name}). Check Windows Settings → Privacy & security → Microphone.`);
+    }
+  }
+  if (!speakerOut && !micOut) throw new Error(warnings.join(' ') || 'No sound device could be opened.');
+
+  if (cfg.tracks === 2) {
+    // Keep both tracks fed even if one source failed, so the file layout stays as configured.
+    (speakerOut || silence()).connect(tap(0));
+    (micOut || silence()).connect(tap(1));
+  } else {
+    const mix = tap(0);
+    for (const o of [speakerOut, micOut]) if (o) o.connect(mix);
+  }
+  applyGains();
+  await ctx.resume();
+  return warnings;
+}
+
+function silence() { const s = new ConstantSourceNode(ctx, { offset: 0 }); s.start(); return s; }
+
+async function openMic(mic) {
+  const ns = mic.noiseSuppression && mic.noiseSuppression !== 'off';
+  {
     const s = await navigator.mediaDevices.getUserMedia({
       audio: {
-        deviceId: cfg.mic.deviceId && cfg.mic.deviceId !== 'default' ? { exact: cfg.mic.deviceId } : undefined,
+        deviceId: mic.deviceId && mic.deviceId !== 'default' ? { exact: mic.deviceId } : undefined,
         noiseSuppression: ns, echoCancellation: false, autoGainControl: false, channelCount: 2,
       },
     });
+    if (!s.getAudioTracks().length) throw new Error('no audio track');
     streams.push(s);
     let src = new MediaStreamAudioSourceNode(ctx, { mediaStream: s });
     if (ns) {
       const gate = new AudioWorkletNode(ctx, 'noise-gate');
-      gate.parameters.get('threshold').value = dbToLin(GATE_DB[cfg.mic.noiseSuppression] || 0);
+      gate.parameters.get('threshold').value = dbToLin(GATE_DB[mic.noiseSuppression] || 0);
       src.connect(gate);
       src = gate;
     }
     nodes.micGain = new GainNode(ctx);
-    const out = chain(src, nodes.micGain, cfg.mic.mono);
+    const out = chain(src, nodes.micGain, mic.mono);
     nodes.micMeter = analyser(nodes.micGain);
-    outs.push(out);
+    return out;
   }
-
-  if (cfg.tracks === 2) {
-    outs[0].connect(tap(0));
-    outs[1].connect(tap(1));
-  } else {
-    const mix = tap(0);
-    for (const o of outs) o.connect(mix);
-  }
-  applyGains();
-  await ctx.resume();
 }
 
 api.audio.onStart(async (cfg) => {
   try {
-    await start(cfg);
-    api.audio.started({ ok: true });
+    const warnings = await start(cfg);
+    api.audio.started({ ok: true, warnings });
   } catch (e) {
     await stop();
     api.audio.started({ ok: false, error: e.message || String(e) });

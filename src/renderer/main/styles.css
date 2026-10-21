@@ -145,3 +145,4 @@ input[type=color] { padding: 1px; width: 36px; height: 26px; }
 table.enc { border-collapse: collapse; width: 100%; }
 table.enc td, table.enc th { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); }
 table.enc th { color: var(--muted); font-weight: 600; }
+.tool.disabled-src { color: #5f6a80; border-style: dashed; }

@@ -244,7 +244,11 @@ async function startAudioEngine(plan) {
   const s = settings.get();
   return new Promise((resolve) => {
     const t = setTimeout(() => { ipcMain.removeAllListeners('audio:started'); resolve('Audio engine did not respond.'); }, 6000);
-    ipcMain.once('audio:started', (_e, res) => { clearTimeout(t); resolve(res.ok ? true : res.error); });
+    ipcMain.once('audio:started', (_e, res) => {
+      clearTimeout(t);
+      for (const w of res.warnings || []) toast('warn', w);
+      resolve(res.ok ? true : res.error);
+    });
     audioWin.webContents.send('audio:start', {
       speaker: plan.speaker ? s.audio.speaker : null, mic: plan.mic ? s.audio.mic : null,
       tracks: plan.tracks, mute: rec.mute,

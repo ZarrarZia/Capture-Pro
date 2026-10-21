@@ -3,7 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+const SETTINGS_VERSION = 2;
+
 const defaults = () => ({
+  version: SETTINGS_VERSION,
   mode: 'rect', // rect | full | window | mouse | game | device | audio
   general: {
     outputDir: path.join(os.homedir(), 'Documents', 'CapturePro'),
@@ -54,7 +57,7 @@ const defaults = () => ({
   audio: {
     enabled: true,
     speaker: { enabled: true, volume: 100, mono: false },
-    mic: { enabled: false, deviceId: 'default', volume: 100, mono: false, noiseSuppression: 'off' },
+    mic: { enabled: true, deviceId: 'default', volume: 100, mono: false, noiseSuppression: 'off' },
     mix: true, // mix speaker+mic into one track; false = two tracks
     saveTracksAsFiles: false,
     pushTo: { enabled: false, mode: 'talk', key: 'CapsLock' },
@@ -114,11 +117,25 @@ function merge(base, over) {
   return out;
 }
 
+// One-time upgrades of settings saved by older versions. Returns true when something changed.
+function migrate(data, from) {
+  if (from >= SETTINGS_VERSION) return false;
+  // v1 shipped with the microphone off, so the user's own voice was missing from recordings.
+  if (from < 2) data.audio.mic.enabled = true;
+  data.version = SETTINGS_VERSION;
+  return true;
+}
+
 class Settings {
   constructor(file) {
     this.file = file;
     this.data = defaults();
-    try { this.data = merge(defaults(), JSON.parse(fs.readFileSync(file, 'utf8'))); } catch { /* first run */ }
+    let saved = null;
+    try { saved = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* first run */ }
+    if (saved) {
+      this.data = merge(defaults(), saved);
+      if (migrate(this.data, saved.version || 1)) this.save();
+    }
     this.listeners = new Set();
   }
 
@@ -149,4 +166,4 @@ class Settings {
   }
 }
 
-module.exports = { Settings, defaults, merge };
+module.exports = { Settings, defaults, merge, migrate };
