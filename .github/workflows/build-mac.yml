@@ -37,8 +37,19 @@ jobs:
       - name: Unit tests
         run: npm test
 
-      - name: Build CapturePro.dmg
-        run: npx electron-builder --mac --publish never
+      # One architecture at a time: parallel DMG builds on GitHub's macOS runners often fail with
+      # "hdiutil detach ... resource busy" (XProtect keeps the new image busy), so it is stopped first.
+      - name: Build CapturePro.dmg (Apple silicon)
+        run: |
+          sudo pkill -9 XProtect >/dev/null 2>&1 || true
+          npx electron-builder --mac --arm64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Build CapturePro.dmg (Intel)
+        run: |
+          sudo pkill -9 XProtect >/dev/null 2>&1 || true
+          npx electron-builder --mac --x64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
