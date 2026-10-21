@@ -3,7 +3,12 @@ const assert = require('node:assert');
 const { resolveEncoder, videoEncoderArgs, audioEncoderArgs, scaleFilter, pixelFormat } = require('../src/main/codecs');
 const { buildRecordArgs, textFileContent, positionExpr } = require('../src/main/capture-args');
 
-test('resolveEncoder prefers requested, then hardware, then CPU', () => {
+test('resolveEncoder on macOS prefers VideoToolbox, then CPU', { skip: process.platform !== 'darwin' }, () => {
+  assert.equal(resolveEncoder('h264', 'auto', new Set(['h264_videotoolbox', 'libx264'])), 'vt');
+  assert.equal(resolveEncoder('hevc', 'auto', new Set(['libx265'])), 'cpu');
+});
+
+test('resolveEncoder prefers requested, then hardware, then CPU', { skip: process.platform === 'darwin' }, () => {
   const avail = new Set(['h264_qsv', 'libx264', 'h264_nvenc']);
   assert.equal(resolveEncoder('h264', 'qsv', avail), 'qsv');
   assert.equal(resolveEncoder('h264', 'auto', avail), 'nvenc');
