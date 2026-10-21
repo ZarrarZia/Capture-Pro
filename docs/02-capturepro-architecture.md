@@ -37,8 +37,15 @@ stop   = concat segments (-c copy) ──► final .mp4/.avi/.mkv  (+ separate .
 ```
 
 ## Roadmap
-1. **Core recorder**: app shell, settings, all screen modes, audio-only, encoder detection, codecs and presets, pause/resume, hotkeys, tray, outputs list, image capture, file naming.
-2. **Overlays**: webcam PIP (shapes, flip/rotate, border, chroma key), click/highlight effects, keystrokes, drawing mode, countdown, logo and text.
-3. **Automation**: auto-complete (time/size/silence + after-actions), timer and scheduled recording, auto-pause on idle, push-to-talk, startup options.
-4. **Player, editor and AI**: built-in player, trim/export, repair tool, whisper transcription (.srt/.txt, burn-in), background removal.
-5. **Sharing and extras**: YouTube/Vimeo/Drive upload, device recording extras (deinterlace/zoom), translations.
+
+| Phase | Scope | Status |
+|---|---|---|
+| 1. Core recorder | App shell, settings, rectangle/fullscreen/window/game/audio-only modes, encoder auto-detection (NVENC/QSV/AMF/CPU), H.264/HEVC/AV1/MPEG-1/Xvid/MJPEG in MP4/AVI/MKV, presets, pause/resume, hotkeys, tray, output library, screenshots, file naming, own-window exclusion | **Done** |
+| 2. Overlays | Webcam overlay (21 shapes, flip/rotate, border, chroma key, separate .webcam.mp4), click effects, highlight, keystrokes, drawing mode, countdown, logo, text | **Done** |
+| 3. Automation | Auto-complete (time/size/silence and after-actions), timer, scheduled recording, auto-pause, push-to-talk, startup options, device recording, around-mouse following | **Done** |
+| 4. Player, editor, AI | Built-in player, trim/export, repair tool, whisper.cpp transcription (.srt/.txt, burn-in), AI webcam background removal | Next |
+| 5. Sharing and release | YouTube/Vimeo/Drive upload (needs your own OAuth client IDs), translations, installer and bundled FFmpeg | Planned |
+
+Known differences from the reference product:
+- There is no in-game FPS counter or FPS limiter, because both need code injection into games.
+- Click effects and the webcam overlay are visible on screen while recording, because they are composited by the screen capture.
