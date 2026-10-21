@@ -1,0 +1,17 @@
+{
+  "name": "capturepro",
+  "productName": "CapturePro",
+  "version": "0.1.0",
+  "description": "High-performance screen, game, webcam and audio recorder",
+  "main": "src/main/main.js",
+  "private": true,
+  "scripts": {
+    "build:helper": "node scripts/build-helper.js",
+    "start": "npm run build:helper && node scripts/start.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^33.4.11"
+  }
+}
