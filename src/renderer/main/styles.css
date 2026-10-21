@@ -23,13 +23,13 @@ input[type=range] { accent-color: var(--accent); padding: 0; background: none; b
 input[type=color] { padding: 1px; width: 36px; height: 26px; }
 
 /* title bar */
-.titlebar { height: 34px; display: flex; align-items: center; padding-left: 12px; -webkit-app-region: drag; background: #0c0f14; }
+.titlebar { height: 42px; display: flex; align-items: center; padding-left: 12px; -webkit-app-region: drag; background: #0c0f14; }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; letter-spacing: .2px; }
-.brand-logo { height: 18px; width: auto; display: block; -webkit-user-drag: none; }
+.brand-logo { height: 26px; width: auto; display: block; -webkit-user-drag: none; }
 .about-logo { height: 56px; width: auto; display: block; margin: 4px 0 14px; }
 .title-status { margin-left: 14px; color: var(--muted); font-size: 12px; }
 .win-btns { margin-left: auto; display: flex; -webkit-app-region: no-drag; }
-.win-btns button { width: 44px; height: 34px; border: 0; background: transparent; color: var(--muted); }
+.win-btns button { width: 46px; height: 42px; border: 0; background: transparent; color: var(--muted); }
 .win-btns button:hover { background: #1f2533; color: var(--text); }
 .win-btns button.close:hover { background: #c42b1c; color: #fff; }
 .win-btns svg { width: 16px; height: 16px; }
@@ -60,7 +60,7 @@ input[type=color] { padding: 1px; width: 36px; height: 26px; }
 .rec:hover { filter: brightness(1.08); }
 
 /* layout */
-.body { display: flex; height: calc(100% - 98px); }
+.body { display: flex; height: calc(100% - 106px); }
 .nav { width: 168px; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 8px; gap: 2px; }
 .nav button { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); text-align: left; }
 .nav button svg { width: 18px; height: 18px; }

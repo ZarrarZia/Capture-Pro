@@ -22,7 +22,7 @@ html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
 .hole { position: absolute; left: 0; right: 0; top: var(--barh); bottom: 0; border: var(--border) solid var(--edge); }
 .recording .hole, .recording #bar { border-color: var(--edge-rec); }
 .paused .hole { border-style: dashed; }
-.logo { height: 16px; width: auto; flex: none; margin: 0 6px 0 2px; -webkit-user-drag: none; }
+.logo { height: 20px; width: auto; flex: none; margin: 0 6px 0 2px; -webkit-user-drag: none; }
 .spacer { flex: 1; }
 button { font: inherit; color: var(--text); background: transparent; border: 0; border-radius: 4px; height: 24px; padding: 0 6px; cursor: pointer; }
 button:hover:not(:disabled) { background: rgba(255,255,255,.1); }
