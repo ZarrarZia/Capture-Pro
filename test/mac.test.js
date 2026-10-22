@@ -34,3 +34,18 @@ test('VideoToolbox encoder settings', () => {
   assert.deepEqual(c.slice(c.indexOf('-maxrate'), c.indexOf('-maxrate') + 2), ['-maxrate', '6000k']);
   assert.equal(pixelFormat('h264_videotoolbox'), 'nv12');
 });
+
+// Windows region handling (the user's "I/O error": a capture frame dragged 1 px past the screen edge).
+test('regions past the screen edge are clipped instead of failing', { skip: process.platform === 'darwin' }, () => {
+  const { regionSource } = require('../src/main/targets');
+  const one = [{ index: 0, hmonitor: 65537, x: 0, y: 0, w: 1920, h: 1080, primary: true }];
+  const src = regionSource(one, { x: -2, y: 205, w: 1778, h: 795 }, 'wgc');
+  assert.equal(src.kind, 'wgc-monitor', 'still captured through WGC, not GDI');
+  assert.deepEqual(src.crop, { left: 0, top: 205, right: 144, bottom: 81 }, 'clipped to x 0..1776, height made even (794)');
+  const dda = regionSource(one, { x: 1800, y: 1000, w: 200, h: 200 }, 'dda');
+  assert.deepEqual(dda.region, { x: 1800, y: 1000, w: 120, h: 80 });
+  const two = [...one, { index: 1, hmonitor: 2, x: 1920, y: 0, w: 1280, h: 1024, primary: false }];
+  const span = regionSource(two, { x: 1500, y: -50, w: 1000, h: 600 }, 'wgc');
+  assert.equal(span.kind, 'gdi', 'a region really spanning two monitors uses GDI');
+  assert.deepEqual(span.region, { x: 1500, y: 0, w: 1000, h: 550 }, 'clipped to the desktop');
+});

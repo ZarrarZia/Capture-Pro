@@ -145,7 +145,13 @@ function createRectWindow() {
   protectFromCapture(rectWin, () => true); // the frame itself is never recorded
   rectWin.loadFile(path.join(RENDERER, 'rect', 'rect.html'));
   recoverRenderer(rectWin, 'capture frame');
-  rectWin.on('moved', () => saveRectFromWindow());
+  rectWin.on('moved', () => {
+    // Keep the capture area fully on screen after a drag (the same limits resizing uses).
+    const r = interiorFromWindow(rectWin.getBounds());
+    const c = clampRect(r);
+    if (c.x !== r.x || c.y !== r.y || c.w !== r.w || c.h !== r.h) rectWin.setBounds(rectWindowBounds(c));
+    saveRectFromWindow();
+  });
   // Alt+F4 on the capture frame hides it (it is reopened from the mode button or Ctrl+Alt+H).
   rectWin.on('close', (e) => { if (!app.isQuitting) { e.preventDefault(); rectWin.userHidden = true; updateRectVisibility(); } });
   rectWin.webContents.on('did-finish-load', () => sendRectInfo());
@@ -466,7 +472,9 @@ async function startRecordingInner({ scheduleId = null } = {}) {
   try {
     await recorder.start(plan(ffEncoder));
   } catch (e) {
-    if (ffEncoder && /_(nvenc|qsv|amf|videotoolbox)$/.test(ffEncoder) && available.has('libx264') && s.video.codec === 'h264') {
+    // Only an encoder failure is worth retrying on the CPU; capture/input errors would fail again.
+    const inputError = /Error opening input|opening input files|I\/O error|No such file|Permission denied/i.test(e.message);
+    if (!inputError && ffEncoder && /_(nvenc|qsv|amf|videotoolbox)$/.test(ffEncoder) && available.has('libx264') && s.video.codec === 'h264') {
       toast('warn', `Failed to initialize ${ffEncoder} (${e.message}). Retrying with H.264 (CPU).`);
       try { await recorder.start(plan('libx264')); } catch (e2) { return failStart(e2); }
     } else {

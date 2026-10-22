@@ -29,12 +29,29 @@ function avfRegion(monitors, r) {
   return { kind: 'avf', screen: m.index, scale: s, region };
 }
 
-// Region (physical) → source. Uses the monitor's capture with crop when the region fits one monitor,
-// otherwise GDI over the virtual desktop.
+function intersect(a, b) {
+  const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h);
+  return { x, y, w: Math.max(0, x2 - x), h: Math.max(0, y2 - y) };
+}
+
+function desktopBounds(monitors) {
+  const x = Math.min(...monitors.map((m) => m.x)), y = Math.min(...monitors.map((m) => m.y));
+  return { x, y, w: Math.max(...monitors.map((m) => m.x + m.w)) - x, h: Math.max(...monitors.map((m) => m.y + m.h)) - y };
+}
+
+// Region (physical) → source. The region is first clipped to what is actually on screen: a frame
+// dragged a few pixels past the edge (or DIP→pixel rounding at 125%/150%) must not make the capture
+// fail. A region that mostly lies on one monitor uses that monitor's capture with a crop; one that
+// really spans monitors uses GDI over the virtual desktop.
 function regionSource(monitors, r, method) {
   if (platform.isMac) return avfRegion(monitors, r);
-  r = { ...r, w: Math.max(2, even(r.w)), h: Math.max(2, even(r.h)) };
+  if (!monitors.length) return { kind: 'gdi', region: { ...r, w: Math.max(2, even(r.w)), h: Math.max(2, even(r.h)) } };
   const m = monitorFor(monitors, r);
+  const onMonitor = m ? intersect(r, m) : r;
+  const area = (q) => q.w * q.h;
+  r = m && area(onMonitor) >= 0.9 * area(r) ? onMonitor : intersect(r, desktopBounds(monitors));
+  r = { ...r, w: Math.max(2, even(r.w)), h: Math.max(2, even(r.h)) };
   if (method !== 'gdi' && m && contains(m, r)) {
     if (method === 'dda') return { kind: 'dda', outputIdx: m.index, region: { x: r.x - m.x, y: r.y - m.y, w: r.w, h: r.h } };
     return {
