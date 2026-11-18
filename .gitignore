@@ -3,3 +3,4 @@ native/bin/
 dist/
 *.log
 vendor/
+.claude/scheduled_tasks.lock

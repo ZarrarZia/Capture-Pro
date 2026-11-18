@@ -15,7 +15,7 @@
     "prepare:ffmpeg:mac": "node scripts/prepare-ffmpeg-mac.js",
     "dist:mac": "npm run build:helper && npm run prepare:ffmpeg:mac && electron-builder --mac --publish never && bash scripts/make-dmg.sh arm64 && bash scripts/make-dmg.sh x64"
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "devDependencies": {
     "electron": "^33.4.11",
     "electron-builder": "^25.1.8",
